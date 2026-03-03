@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth.routes';
 import driverRoutes from './routes/driver.routes';
 import carRoutes from './routes/car.routes';
@@ -18,12 +19,29 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много запросов. Попробуйте позже.' },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Слишком много попыток входа. Попробуйте позже.' },
+});
+
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/drivers', driverRoutes);
-app.use('/api/cars', carRoutes);
-app.use('/api/transfers', transferRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/drivers', apiLimiter, driverRoutes);
+app.use('/api/cars', apiLimiter, carRoutes);
+app.use('/api/transfers', apiLimiter, transferRoutes);
+app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {
