@@ -70,7 +70,11 @@ export async function updateDriver(req: Request, res: Response): Promise<void> {
       data: { fullName, phone, status, note },
     });
     res.json(driver);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Водитель не найден' });
+      return;
+    }
     console.error('UpdateDriver error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
@@ -81,7 +85,11 @@ export async function deleteDriver(req: Request, res: Response): Promise<void> {
   try {
     await prisma.driver.delete({ where: { id: Number(id) } });
     res.json({ message: 'Водитель удалён' });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Водитель не найден' });
+      return;
+    }
     console.error('DeleteDriver error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }

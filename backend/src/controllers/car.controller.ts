@@ -75,6 +75,10 @@ export async function updateCar(req: Request, res: Response): Promise<void> {
     });
     res.json(car);
   } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Автомобиль не найден' });
+      return;
+    }
     if (error.code === 'P2002') {
       res.status(400).json({ error: 'Автомобиль с таким госномером уже существует' });
       return;
@@ -89,7 +93,11 @@ export async function deleteCar(req: Request, res: Response): Promise<void> {
   try {
     await prisma.car.delete({ where: { id: Number(id) } });
     res.json({ message: 'Автомобиль удалён' });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Автомобиль не найден' });
+      return;
+    }
     console.error('DeleteCar error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }

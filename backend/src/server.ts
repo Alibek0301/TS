@@ -7,8 +7,10 @@ import driverRoutes from './routes/driver.routes';
 import carRoutes from './routes/car.routes';
 import transferRoutes from './routes/transfer.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import { getJwtSecret } from './utils/env';
 
 dotenv.config();
+getJwtSecret();
 
 const app = express();
 const PORT = process.env.PORT || 3001;

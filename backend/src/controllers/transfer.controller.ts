@@ -233,7 +233,11 @@ export async function deleteTransfer(req: AuthRequest, res: Response): Promise<v
   try {
     await prisma.transfer.delete({ where: { id: Number(id) } });
     res.json({ message: 'Трансфер удалён' });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Трансфер не найден' });
+      return;
+    }
     console.error('DeleteTransfer error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
