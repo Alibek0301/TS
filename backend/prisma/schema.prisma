@@ -1,0 +1,115 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DriverStatus {
+  ACTIVE
+  DAY_OFF
+  VACATION
+}
+
+enum CarStatus {
+  FREE
+  MAINTENANCE
+  BUSY
+}
+
+enum TransferStatus {
+  PLANNED
+  COMPLETED
+  CANCELLED
+}
+
+enum UserRole {
+  ADMIN
+  DISPATCHER
+  DRIVER
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(DISPATCHER)
+  driverId  Int?     @unique
+  driver    Driver?  @relation(fields: [driverId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transferHistory TransferHistory[]
+
+  @@map("users")
+}
+
+model Driver {
+  id        Int          @id @default(autoincrement())
+  fullName  String
+  phone     String
+  status    DriverStatus @default(ACTIVE)
+  note      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  transfers Transfer[]
+  user      User?
+
+  @@map("drivers")
+}
+
+model Car {
+  id        Int       @id @default(autoincrement())
+  brand     String
+  model     String
+  plateNumber String  @unique
+  status    CarStatus @default(FREE)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  transfers Transfer[]
+
+  @@map("cars")
+}
+
+model Transfer {
+  id          Int            @id @default(autoincrement())
+  date        DateTime       @db.Date
+  startTime   DateTime
+  endTime     DateTime
+  origin      String
+  destination String
+  driverId    Int
+  carId       Int
+  status      TransferStatus @default(PLANNED)
+  comment     String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  driver  Driver @relation(fields: [driverId], references: [id])
+  car     Car    @relation(fields: [carId], references: [id])
+  history TransferHistory[]
+
+  @@map("transfers")
+}
+
+model TransferHistory {
+  id          Int      @id @default(autoincrement())
+  transferId  Int
+  userId      Int
+  action      String
+  description String
+  createdAt   DateTime @default(now())
+
+  transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@map("transfer_history")
+}
