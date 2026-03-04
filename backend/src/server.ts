@@ -7,6 +7,7 @@ import driverRoutes from './routes/driver.routes';
 import carRoutes from './routes/car.routes';
 import transferRoutes from './routes/transfer.routes';
 import dashboardRoutes from './routes/dashboard.routes';
+import userRoutes from './routes/user.routes';
 import { getJwtSecret } from './utils/env';
 
 dotenv.config();
@@ -44,6 +45,7 @@ app.use('/api/drivers', apiLimiter, driverRoutes);
 app.use('/api/cars', apiLimiter, carRoutes);
 app.use('/api/transfers', apiLimiter, transferRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
+app.use('/api/users', apiLimiter, userRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

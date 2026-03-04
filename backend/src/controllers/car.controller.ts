@@ -2,6 +2,12 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { CarStatus } from '@prisma/client';
 
+function parsePositiveInt(value: unknown): number | null {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num <= 0) return null;
+  return num;
+}
+
 export async function getCars(req: Request, res: Response): Promise<void> {
   try {
     const cars = await prisma.car.findMany({
@@ -19,9 +25,14 @@ export async function getCars(req: Request, res: Response): Promise<void> {
 
 export async function getCar(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
+  const carId = parsePositiveInt(id);
+  if (!carId) {
+    res.status(400).json({ error: 'Некорректный ID автомобиля' });
+    return;
+  }
   try {
     const car = await prisma.car.findUnique({
-      where: { id: Number(id) },
+      where: { id: carId },
       include: {
         transfers: {
           orderBy: { date: 'desc' },
@@ -67,10 +78,16 @@ export async function createCar(req: Request, res: Response): Promise<void> {
 export async function updateCar(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
   const { brand, model, plateNumber, status } = req.body;
+  const carId = parsePositiveInt(id);
+
+  if (!carId) {
+    res.status(400).json({ error: 'Некорректный ID автомобиля' });
+    return;
+  }
 
   try {
     const car = await prisma.car.update({
-      where: { id: Number(id) },
+      where: { id: carId },
       data: { brand, model, plateNumber, status },
     });
     res.json(car);
@@ -90,8 +107,13 @@ export async function updateCar(req: Request, res: Response): Promise<void> {
 
 export async function deleteCar(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
+  const carId = parsePositiveInt(id);
+  if (!carId) {
+    res.status(400).json({ error: 'Некорректный ID автомобиля' });
+    return;
+  }
   try {
-    await prisma.car.delete({ where: { id: Number(id) } });
+    await prisma.car.delete({ where: { id: carId } });
     res.json({ message: 'Автомобиль удалён' });
   } catch (error: any) {
     if (error.code === 'P2025') {

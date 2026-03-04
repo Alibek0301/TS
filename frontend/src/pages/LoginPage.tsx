@@ -23,7 +23,7 @@ export default function LoginPage() {
   };
 
   const fillDemo = (role: string) => {
-    if (role === 'admin') { setEmail('admin@transfer.com'); setPassword('admin123'); }
+    if (role === 'admin') { setEmail('vip.transfer.astana@gmail.com'); setPassword('Aa123456'); }
     if (role === 'dispatcher') { setEmail('dispatcher@transfer.com'); setPassword('dispatcher123'); }
     if (role === 'driver') { setEmail('driver@transfer.com'); setPassword('driver123'); }
   };
@@ -50,7 +50,7 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@transfer.com"
+              placeholder="vip.transfer.astana@gmail.com"
               required
             />
           </div>

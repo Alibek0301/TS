@@ -4,16 +4,36 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  // Create admin user
-  const hashedPassword = await bcrypt.hash('admin123', 10);
+  const superAdminEmail = 'vip.transfer.astana@gmail.com';
+  const superAdminPassword = 'Aa123456';
+
+  // Ensure there is only one admin in the system
+  await prisma.user.updateMany({
+    where: {
+      role: UserRole.ADMIN,
+      email: { not: superAdminEmail },
+    },
+    data: {
+      role: UserRole.DISPATCHER,
+      driverId: null,
+    },
+  });
+
+  // Create or update the only super admin user
+  const hashedPassword = await bcrypt.hash(superAdminPassword, 10);
   
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@transfer.com' },
-    update: {},
-    create: {
-      email: 'admin@transfer.com',
+    where: { email: superAdminEmail },
+    update: {
       password: hashedPassword,
-      name: 'Администратор',
+      name: 'Суперадмин',
+      role: UserRole.ADMIN,
+      driverId: null,
+    },
+    create: {
+      email: superAdminEmail,
+      password: hashedPassword,
+      name: 'Суперадмин',
       role: UserRole.ADMIN,
     },
   });
@@ -22,7 +42,12 @@ async function main() {
   const dispatcherPassword = await bcrypt.hash('dispatcher123', 10);
   const dispatcher = await prisma.user.upsert({
     where: { email: 'dispatcher@transfer.com' },
-    update: {},
+    update: {
+      password: dispatcherPassword,
+      name: 'Диспетчер',
+      role: UserRole.DISPATCHER,
+      driverId: null,
+    },
     create: {
       email: 'dispatcher@transfer.com',
       password: dispatcherPassword,
@@ -68,7 +93,12 @@ async function main() {
   const driverPassword = await bcrypt.hash('driver123', 10);
   await prisma.user.upsert({
     where: { email: 'driver@transfer.com' },
-    update: {},
+    update: {
+      password: driverPassword,
+      name: driver1.fullName,
+      role: UserRole.DRIVER,
+      driverId: driver1.id,
+    },
     create: {
       email: 'driver@transfer.com',
       password: driverPassword,
@@ -159,7 +189,7 @@ async function main() {
 
   console.log('Seed data created successfully!');
   console.log('Login credentials:');
-  console.log('Admin: admin@transfer.com / admin123');
+  console.log(`Super Admin: ${superAdminEmail} / ${superAdminPassword}`);
   console.log('Dispatcher: dispatcher@transfer.com / dispatcher123');
   console.log('Driver: driver@transfer.com / driver123');
 }

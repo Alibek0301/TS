@@ -6,8 +6,8 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get('/', getDrivers);
-router.get('/:id', getDriver);
+router.get('/', requireRole('ADMIN', 'DISPATCHER'), getDrivers);
+router.get('/:id', requireRole('ADMIN', 'DISPATCHER'), getDriver);
 router.post('/', requireRole('ADMIN', 'DISPATCHER'), createDriver);
 router.put('/:id', requireRole('ADMIN', 'DISPATCHER'), updateDriver);
 router.delete('/:id', requireRole('ADMIN'), deleteDriver);

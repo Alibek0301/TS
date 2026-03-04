@@ -13,15 +13,23 @@ export async function login(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const rawPassword = String(password);
+
+  if (!normalizedEmail || !rawPassword) {
+    res.status(400).json({ error: 'Email и пароль обязательны' });
+    return;
+  }
+
   try {
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     
     if (!user) {
       res.status(401).json({ error: 'Неверный email или пароль' });
       return;
     }
 
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    const isValidPassword = await bcrypt.compare(rawPassword, user.password);
     
     if (!isValidPassword) {
       res.status(401).json({ error: 'Неверный email или пароль' });

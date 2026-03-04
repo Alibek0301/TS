@@ -137,6 +137,10 @@ PUT    /api/drivers/:id      Обновить водителя
 DELETE /api/drivers/:id      Удалить водителя
 ```
 
+Доступ:
+- `ADMIN`, `DISPATCHER`: чтение/создание/обновление
+- `ADMIN`: удаление
+
 ### Cars
 ```
 GET    /api/cars             Список автомобилей
@@ -146,14 +150,24 @@ PUT    /api/cars/:id         Обновить автомобиль
 DELETE /api/cars/:id         Удалить автомобиль
 ```
 
+Доступ:
+- `ADMIN`, `DISPATCHER`: чтение/создание/обновление
+- `ADMIN`: удаление
+
 ### Transfers
 ```
 GET    /api/transfers        Список трансферов (с фильтрами)
 GET    /api/transfers/:id    Трансфер по ID (с историей)
+GET    /api/transfers/history/recent Журнал последних изменений (ADMIN/DISPATCHER)
+PATCH  /api/transfers/:id/my-status Водитель: смена статуса своего трансфера
 POST   /api/transfers        Создать трансфер (проверка конфликтов)
 PUT    /api/transfers/:id    Обновить трансфер (проверка конфликтов)
 DELETE /api/transfers/:id    Удалить трансфер
 ```
+
+Для `PATCH /api/transfers/:id/my-status` доступны только статусы:
+- `COMPLETED`
+- `CANCELLED`
 
 **Фильтры для GET /api/transfers:**
 - `?driverId=1` — по водителю
@@ -166,6 +180,20 @@ DELETE /api/transfers/:id    Удалить трансфер
 ```
 GET    /api/dashboard        Статистика для главной страницы
 ```
+
+Доступ:
+- `ADMIN`, `DISPATCHER`: общий дашборд
+- `DRIVER`: персональный дашборд (собственные показатели и ближайшие рейсы)
+
+### Users (Admin)
+```
+GET    /api/users            Список пользователей
+POST   /api/users            Создать пользователя
+PUT    /api/users/:id        Обновить пользователя
+DELETE /api/users/:id        Удалить пользователя
+```
+
+Доступ: только `ADMIN`
 
 ## 🚀 Инструкция по запуску
 
@@ -236,7 +264,7 @@ Frontend будет доступен на http://localhost:5173
 
 | Роль | Email | Пароль |
 |------|-------|--------|
-| Администратор | admin@transfer.com | admin123 |
+| Администратор | vip.transfer.astana@gmail.com | Aa123456 |
 | Диспетчер | dispatcher@transfer.com | dispatcher123 |
 | Водитель | driver@transfer.com | driver123 |
 
@@ -247,11 +275,64 @@ Frontend будет доступен на http://localhost:5173
 - Свободные / занятые автомобили
 - Водители на смене
 - Ближайшие 5 трансферов
+- KPI по смене: доля выполненных, доля отмен, средняя длительность рейса, просроченные плановые рейсы
 
 ### График трансферов
 - **Табличный вид** — все трансферы с фильтрацией
 - **Календарный вид** — визуализация по неделям/дням
 - Цветовая индикация: Запланирован (синий), Выполнен (зелёный), Отменён (красный)
+
+### Режим водителя
+- Персональный дашборд с собственной статистикой за день
+- Страница **«Мои смены»** с быстрыми фильтрами: Сегодня / Эта неделя / Выполненные / Все
+- Быстрое изменение статуса своего запланированного рейса: `COMPLETED` или `CANCELLED`
+- Экспорт списка смен в CSV
+
+### Режим диспетчера/администратора
+- Страница **«Оперативная смена»** с рейсами за сегодня
+- Быстрые фильтры и поиск по маршруту/водителю/авто
+- Массовое закрытие запланированных рейсов и быстрые действия по каждому рейсу
+- Журнал действий с фильтрами (дата/действие/пользователь/ID рейса) и экспортом CSV
+
+## 🌐 Production деплой (Docker)
+
+Подходит для VPS/сервера с Docker и Docker Compose.
+
+### 1) Подготовка переменных
+
+```bash
+cp .env.prod.example .env.prod
+```
+
+Заполните минимум:
+- `POSTGRES_PASSWORD`
+- `JWT_SECRET`
+- `FRONTEND_URL` (например, `https://your-domain.com`)
+
+### 2) Сборка и запуск
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+```
+
+### 3) Проверка
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+curl http://localhost/api/health
+```
+
+### 4) Обновление приложения
+
+```bash
+git pull
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+```
+
+### Примечания
+- PostgreSQL хранит данные в Docker volume `postgres_data`.
+- Backend при старте применяет миграции Prisma (`migrate deploy`), а если папка миграций отсутствует — выполняет `db push`.
+- Внешний порт открыт только у frontend (`APP_PORT`, по умолчанию 80).
 
 ### Управление
 - Быстрое создание трансфера через модальное окно

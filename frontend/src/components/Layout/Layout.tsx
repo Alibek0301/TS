@@ -8,6 +8,9 @@ import {
   Users,
   CalendarClock,
   LogOut,
+  UserCog,
+  Clock3,
+  ListChecks,
 } from 'lucide-react';
 
 export default function Layout() {
@@ -39,6 +42,18 @@ export default function Layout() {
               <CalendarClock size={18} />
               Трансферы
             </NavLink>
+            {user?.role !== 'DRIVER' && (
+              <NavLink to="/ops" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <ListChecks size={18} />
+                Оперативная смена
+              </NavLink>
+            )}
+            {user?.role === 'DRIVER' && (
+              <NavLink to="/my-shifts" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Clock3 size={18} />
+                Мои смены
+              </NavLink>
+            )}
           </div>
 
           {user?.role !== 'DRIVER' && (
@@ -51,6 +66,16 @@ export default function Layout() {
               <NavLink to="/cars" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <Car size={18} />
                 Автомобили
+              </NavLink>
+            </div>
+          )}
+
+          {user?.role === 'ADMIN' && (
+            <div className="nav-group">
+              <div className="nav-group-label">Администрирование</div>
+              <NavLink to="/users" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <UserCog size={18} />
+                Пользователи
               </NavLink>
             </div>
           )}

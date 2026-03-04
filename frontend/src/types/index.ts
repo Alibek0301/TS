@@ -6,6 +6,22 @@ export interface User {
   driverId?: number;
 }
 
+export interface ManagedUser {
+  id: number;
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'DISPATCHER' | 'DRIVER';
+  driverId?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  driver?: {
+    id: number;
+    fullName: string;
+    phone: string;
+    status: 'ACTIVE' | 'DAY_OFF' | 'VACATION';
+  } | null;
+}
+
 export interface Driver {
   id: number;
   fullName: string;
@@ -53,7 +69,17 @@ export interface TransferHistory {
   action: string;
   description: string;
   createdAt: string;
-  user?: { id: number; name: string; email: string };
+  user?: { id: number; name: string; email: string; role?: 'ADMIN' | 'DISPATCHER' | 'DRIVER' };
+  transfer?: {
+    id: number;
+    origin: string;
+    destination: string;
+    startTime: string;
+    endTime: string;
+    status: 'PLANNED' | 'COMPLETED' | 'CANCELLED';
+    driver?: { id: number; fullName: string };
+    car?: { id: number; brand: string; model: string; plateNumber: string };
+  };
 }
 
 export interface DashboardData {
@@ -62,4 +88,15 @@ export interface DashboardData {
   busyCarsCount: number;
   activeDriversCount: number;
   upcomingTransfers: Transfer[];
+  driverStats?: {
+    plannedToday: number;
+    completedToday: number;
+    cancelledToday: number;
+  } | null;
+  kpi?: {
+    completionRate: number;
+    cancellationRate: number;
+    avgDurationMinutes: number;
+    overduePlannedCount: number;
+  } | null;
 }

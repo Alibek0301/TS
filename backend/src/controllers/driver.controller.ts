@@ -2,6 +2,12 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { DriverStatus } from '@prisma/client';
 
+function parsePositiveInt(value: unknown): number | null {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num <= 0) return null;
+  return num;
+}
+
 export async function getDrivers(req: Request, res: Response): Promise<void> {
   try {
     const drivers = await prisma.driver.findMany({
@@ -19,9 +25,14 @@ export async function getDrivers(req: Request, res: Response): Promise<void> {
 
 export async function getDriver(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
+  const driverId = parsePositiveInt(id);
+  if (!driverId) {
+    res.status(400).json({ error: 'Некорректный ID водителя' });
+    return;
+  }
   try {
     const driver = await prisma.driver.findUnique({
-      where: { id: Number(id) },
+      where: { id: driverId },
       include: {
         transfers: {
           orderBy: { date: 'desc' },
@@ -63,10 +74,16 @@ export async function createDriver(req: Request, res: Response): Promise<void> {
 export async function updateDriver(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
   const { fullName, phone, status, note } = req.body;
+  const driverId = parsePositiveInt(id);
+
+  if (!driverId) {
+    res.status(400).json({ error: 'Некорректный ID водителя' });
+    return;
+  }
 
   try {
     const driver = await prisma.driver.update({
-      where: { id: Number(id) },
+      where: { id: driverId },
       data: { fullName, phone, status, note },
     });
     res.json(driver);
@@ -82,8 +99,13 @@ export async function updateDriver(req: Request, res: Response): Promise<void> {
 
 export async function deleteDriver(req: Request, res: Response): Promise<void> {
   const { id } = req.params;
+  const driverId = parsePositiveInt(id);
+  if (!driverId) {
+    res.status(400).json({ error: 'Некорректный ID водителя' });
+    return;
+  }
   try {
-    await prisma.driver.delete({ where: { id: Number(id) } });
+    await prisma.driver.delete({ where: { id: driverId } });
     res.json({ message: 'Водитель удалён' });
   } catch (error: any) {
     if (error.code === 'P2025') {

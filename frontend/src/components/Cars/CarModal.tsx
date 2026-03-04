@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { Car } from '../../types';
 import { carsApi } from '../../api';
 import { X } from 'lucide-react';
+import { useToast } from '../../context/ToastContext';
 
 interface Props {
   car: Car | null;
@@ -11,6 +12,7 @@ interface Props {
 
 export default function CarModal({ car, onClose, onSave }: Props) {
   const isEdit = !!car;
+  const { showToast } = useToast();
   const [form, setForm] = useState({
     brand: car?.brand || '',
     model: car?.model || '',
@@ -20,19 +22,57 @@ export default function CarModal({ car, onClose, onSave }: Props) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const validate = () => {
+    const brand = form.brand.trim();
+    const model = form.model.trim();
+    const plateNumber = form.plateNumber.trim().toUpperCase();
+
+    if (brand.length < 2) {
+      return 'Марка должна содержать минимум 2 символа';
+    }
+
+    if (model.length < 1) {
+      return 'Укажите модель автомобиля';
+    }
+
+    const plateRegex = /^[A-ZА-Я0-9\-\s]{5,12}$/i;
+    if (!plateRegex.test(plateNumber)) {
+      return 'Введите корректный госномер';
+    }
+
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setLoading(true);
     try {
+      const payload = {
+        ...form,
+        brand: form.brand.trim(),
+        model: form.model.trim(),
+        plateNumber: form.plateNumber.trim().toUpperCase(),
+      };
+
       if (isEdit) {
-        await carsApi.update(car!.id, form);
+        await carsApi.update(car!.id, payload);
       } else {
-        await carsApi.create(form);
+        await carsApi.create(payload);
       }
+      showToast(isEdit ? 'Автомобиль обновлён' : 'Автомобиль добавлен', 'success');
       onSave();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Ошибка сохранения');
+      const message = err.response?.data?.error || 'Ошибка сохранения';
+      setError(message);
+      showToast(message, 'error');
     } finally {
       setLoading(false);
     }

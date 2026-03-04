@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { Transfer, Driver, Car } from '../../types';
 import { transfersApi } from '../../api';
 import { X, AlertTriangle } from 'lucide-react';
-import { formatTime } from '../../utils/helpers';
+import { useToast } from '../../context/ToastContext';
 
 interface Props {
   transfer: Transfer | null;
@@ -28,6 +28,7 @@ function toLocalTimeString(date: Date): string {
 
 export default function TransferModal({ transfer, drivers, cars, onClose, onSave, defaultDate }: Props) {
   const isEdit = !!transfer;
+  const { showToast } = useToast();
 
   const getDefaultDate = () => {
     if (transfer) return toLocalDateString(new Date(transfer.date));
@@ -72,9 +73,47 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
     return `${date}T${time}:00`;
   };
 
+  const validate = () => {
+    if (!form.date) return 'Укажите дату трансфера';
+    if (!form.startTime || !form.endTime) return 'Укажите время начала и окончания';
+
+    const start = new Date(buildDateTime(form.date, form.startTime)).getTime();
+    const end = new Date(buildDateTime(form.date, form.endTime)).getTime();
+    if (end <= start) {
+      return 'Время окончания должно быть позже времени начала';
+    }
+
+    const origin = form.origin.trim();
+    const destination = form.destination.trim();
+    if (origin.length < 3 || destination.length < 3) {
+      return 'Точки маршрута должны содержать минимум 3 символа';
+    }
+
+    if (origin.toLowerCase() === destination.toLowerCase()) {
+      return 'Точка отправления и назначения не должны совпадать';
+    }
+
+    if (!form.driverId || !form.carId) {
+      return 'Выберите водителя и автомобиль';
+    }
+
+    if (form.comment.trim().length > 300) {
+      return 'Комментарий должен быть не длиннее 300 символов';
+    }
+
+    return null;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -82,12 +121,12 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
         date: form.date,
         startTime: buildDateTime(form.date, form.startTime),
         endTime: buildDateTime(form.date, form.endTime),
-        origin: form.origin,
-        destination: form.destination,
+        origin: form.origin.trim(),
+        destination: form.destination.trim(),
         driverId: Number(form.driverId),
         carId: Number(form.carId),
         status: form.status,
-        comment: form.comment || undefined,
+        comment: form.comment.trim() || undefined,
       };
 
       if (isEdit) {
@@ -95,10 +134,12 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
       } else {
         await transfersApi.create(payload);
       }
+      showToast(isEdit ? 'Трансфер обновлён' : 'Трансфер создан', 'success');
       onSave();
     } catch (err: any) {
       const msg = err.response?.data?.error || 'Ошибка сохранения';
       setError(msg);
+      showToast(msg, 'error');
     } finally {
       setLoading(false);
     }

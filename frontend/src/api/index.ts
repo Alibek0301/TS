@@ -1,5 +1,5 @@
 import api from './client';
-import type { Driver, Car, Transfer, DashboardData } from '../types';
+import type { Driver, Car, Transfer, DashboardData, ManagedUser, TransferHistory } from '../types';
 
 // Auth
 export const authApi = {
@@ -37,13 +37,43 @@ export const transfersApi = {
     status?: string;
   }) => api.get<Transfer[]>('/transfers', { params }),
   getById: (id: number) => api.get<Transfer>(`/transfers/${id}`),
+  getRecentHistory: (params?: {
+    date?: string;
+    limit?: number;
+    userId?: number;
+    action?: string;
+    transferId?: number;
+  }) =>
+    api.get<TransferHistory[]>('/transfers/history/recent', { params }),
   create: (data: Partial<Transfer>) => api.post<Transfer>('/transfers', data),
   update: (id: number, data: Partial<Transfer>) =>
     api.put<Transfer>(`/transfers/${id}`, data),
+  updateMyStatus: (id: number, status: 'COMPLETED' | 'CANCELLED') =>
+    api.patch<Transfer>(`/transfers/${id}/my-status`, { status }),
   delete: (id: number) => api.delete(`/transfers/${id}`),
 };
 
 // Dashboard
 export const dashboardApi = {
   get: () => api.get<DashboardData>('/dashboard'),
+};
+
+// Users (admin only)
+export const usersApi = {
+  getAll: () => api.get<ManagedUser[]>('/users'),
+  create: (data: {
+    email: string;
+    password: string;
+    name: string;
+    role: 'ADMIN' | 'DISPATCHER' | 'DRIVER';
+    driverId?: number;
+  }) => api.post<ManagedUser>('/users', data),
+  update: (id: number, data: {
+    email?: string;
+    password?: string;
+    name?: string;
+    role?: 'ADMIN' | 'DISPATCHER' | 'DRIVER';
+    driverId?: number;
+  }) => api.put<ManagedUser>(`/users/${id}`, data),
+  delete: (id: number) => api.delete(`/users/${id}`),
 };

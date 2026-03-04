@@ -7,6 +7,9 @@ import DashboardPage from './pages/DashboardPage';
 import TransfersPage from './pages/TransfersPage';
 import DriversPage from './pages/DriversPage';
 import CarsPage from './pages/CarsPage';
+import UsersPage from './pages/UsersPage';
+import MyShiftsPage from './pages/MyShiftsPage';
+import OpsPage from './pages/OpsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -26,6 +29,18 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AdminOrDispatcherRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (user?.role === 'DRIVER') return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'ADMIN') return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+function DriverRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'DRIVER') return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -59,6 +74,30 @@ function AppRoutes() {
             <AdminOrDispatcherRoute>
               <CarsPage />
             </AdminOrDispatcherRoute>
+          }
+        />
+        <Route
+          path="ops"
+          element={
+            <AdminOrDispatcherRoute>
+              <OpsPage />
+            </AdminOrDispatcherRoute>
+          }
+        />
+        <Route
+          path="users"
+          element={
+            <AdminRoute>
+              <UsersPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="my-shifts"
+          element={
+            <DriverRoute>
+              <MyShiftsPage />
+            </DriverRoute>
           }
         />
       </Route>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { dashboardApi } from '../api';
 import type { DashboardData } from '../types';
+import { useAuth } from '../context/AuthContext';
 import { formatTime } from '../utils/helpers';
 import { getTransferStatusClass, getTransferStatusLabel } from '../utils/helpers';
 import {
@@ -13,8 +14,11 @@ import {
 } from 'lucide-react';
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const isDriver = user?.role === 'DRIVER';
 
   useEffect(() => {
     dashboardApi.get()
@@ -33,7 +37,7 @@ export default function DashboardPage() {
   return (
     <div>
       <div className="page-header">
-        <h2>Дашборд</h2>
+        <h2>{isDriver ? 'Мой дашборд' : 'Дашборд'}</h2>
         <span style={{ fontSize: 13, color: 'var(--gray-500)' }}>
           {new Date().toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </span>
@@ -46,28 +50,59 @@ export default function DashboardPage() {
             <div className="stat-icon blue"><CalendarCheck size={24} /></div>
             <div>
               <div className="stat-value">{data?.todayTransfersCount ?? 0}</div>
-              <div className="stat-label">Трансферов сегодня</div>
+              <div className="stat-label">{isDriver ? 'Моих трансферов сегодня' : 'Трансферов сегодня'}</div>
             </div>
           </div>
           <div className="stat-card">
             <div className="stat-icon green"><Car size={24} /></div>
             <div>
-              <div className="stat-value">{data?.freeCarsCount ?? 0}</div>
-              <div className="stat-label">Свободных авто</div>
+              <div className="stat-value">{isDriver ? data?.driverStats?.plannedToday ?? 0 : data?.freeCarsCount ?? 0}</div>
+              <div className="stat-label">{isDriver ? 'Запланировано на сегодня' : 'Свободных авто'}</div>
             </div>
           </div>
           <div className="stat-card">
             <div className="stat-icon red"><Car size={24} /></div>
             <div>
-              <div className="stat-value">{data?.busyCarsCount ?? 0}</div>
-              <div className="stat-label">Занятых авто</div>
+              <div className="stat-value">{isDriver ? data?.driverStats?.completedToday ?? 0 : data?.busyCarsCount ?? 0}</div>
+              <div className="stat-label">{isDriver ? 'Выполнено сегодня' : 'Занятых авто'}</div>
             </div>
           </div>
           <div className="stat-card">
             <div className="stat-icon cyan"><Users size={24} /></div>
             <div>
-              <div className="stat-value">{data?.activeDriversCount ?? 0}</div>
-              <div className="stat-label">Водителей на смене</div>
+              <div className="stat-value">{isDriver ? data?.driverStats?.cancelledToday ?? 0 : data?.activeDriversCount ?? 0}</div>
+              <div className="stat-label">{isDriver ? 'Отменено сегодня' : 'Водителей на смене'}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="stats-grid" style={{ marginTop: -8 }}>
+          <div className="stat-card">
+            <div className="stat-icon blue"><CalendarCheck size={24} /></div>
+            <div>
+              <div className="stat-value">{data?.kpi?.completionRate ?? 0}%</div>
+              <div className="stat-label">Доля выполненных</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon red"><CalendarCheck size={24} /></div>
+            <div>
+              <div className="stat-value">{data?.kpi?.cancellationRate ?? 0}%</div>
+              <div className="stat-label">Доля отмен</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon cyan"><Clock size={24} /></div>
+            <div>
+              <div className="stat-value">{data?.kpi?.avgDurationMinutes ?? 0}м</div>
+              <div className="stat-label">Средняя длительность</div>
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon yellow"><Clock size={24} /></div>
+            <div>
+              <div className="stat-value">{data?.kpi?.overduePlannedCount ?? 0}</div>
+              <div className="stat-label">Просроченные плановые</div>
             </div>
           </div>
         </div>
@@ -75,8 +110,8 @@ export default function DashboardPage() {
         {/* Upcoming transfers */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">Ближайшие трансферы</div>
-            <Link to="/transfers" className="btn btn-secondary btn-sm">Все трансферы</Link>
+            <div className="card-title">{isDriver ? 'Мои ближайшие трансферы' : 'Ближайшие трансферы'}</div>
+            <Link to="/transfers" className="btn btn-secondary btn-sm">{isDriver ? 'Мои трансферы' : 'Все трансферы'}</Link>
           </div>
 
           {!data?.upcomingTransfers?.length ? (
