@@ -39,9 +39,46 @@ export interface Car {
   model: string;
   plateNumber: string;
   status: 'FREE' | 'MAINTENANCE' | 'BUSY';
+  mileage: number;
+  nextServiceMileage?: number | null;
+  lastServiceMileage?: number | null;
+  lastServiceDate?: string | null;
+  oilChangeMileage?: number | null;
+  coolantChangeDate?: string | null;
+  brakeFluidChangeDate?: string | null;
+  transmissionFluidChangeDate?: string | null;
+  isUnderRepair: boolean;
+  repairNotes?: string | null;
   createdAt: string;
   updatedAt: string;
-  _count?: { transfers: number };
+  _count?: { transfers: number; maintenanceRecords?: number };
+  maintenanceRecords?: CarMaintenance[];
+}
+
+export type CarMaintenanceType = 'OIL_CHANGE' | 'FLUID_CHANGE' | 'INSPECTION' | 'REPAIR' | 'OTHER';
+
+export interface CarMaintenance {
+  id: number;
+  carId: number;
+  type: CarMaintenanceType;
+  mileage: number;
+  performedAt: string;
+  notes?: string | null;
+  cost?: number | null;
+  oilChanged: boolean;
+  coolantChanged: boolean;
+  brakeFluidChanged: boolean;
+  transmissionFluidChanged: boolean;
+  createdAt: string;
+}
+
+export interface CarMaintenanceLogItem extends CarMaintenance {
+  car?: {
+    id: number;
+    brand: string;
+    model: string;
+    plateNumber: string;
+  };
 }
 
 export interface Transfer {
@@ -51,6 +88,8 @@ export interface Transfer {
   endTime: string;
   origin: string;
   destination: string;
+  clientName?: string | null;
+  clientPhone?: string | null;
   driverId: number;
   carId: number;
   status: 'PLANNED' | 'COMPLETED' | 'CANCELLED';
@@ -60,6 +99,74 @@ export interface Transfer {
   driver?: Driver;
   car?: Car;
   history?: TransferHistory[];
+}
+
+export interface ClientOption {
+  name: string;
+  orders: number;
+}
+
+export interface DriverAnalytics {
+  entity: { id: number; fullName: string; phone: string; status: string };
+  metrics: {
+    totalOrders: number;
+    completed: number;
+    cancelled: number;
+    planned: number;
+    avgDurationMinutes: number;
+    uniqueClients: number;
+    uniqueRoutes: number;
+    uniqueCars: number;
+  };
+  topClients: Array<{ name: string; total: number }>;
+  topRoutes: Array<{ route: string; total: number }>;
+  recentOrders: Transfer[];
+}
+
+export interface CarAnalytics {
+  entity: {
+    id: number;
+    brand: string;
+    model: string;
+    plateNumber: string;
+    status: string;
+    mileage: number;
+    nextServiceMileage?: number | null;
+  };
+  metrics: {
+    totalOrders: number;
+    completed: number;
+    cancelled: number;
+    planned: number;
+    avgDurationMinutes: number;
+    uniqueClients: number;
+    uniqueRoutes: number;
+    uniqueDrivers: number;
+    maintenanceRecords: number;
+    maintenanceCostTotal: number;
+  };
+  topDrivers: Array<{ name: string; total: number }>;
+  topRoutes: Array<{ route: string; total: number }>;
+  recentOrders: Transfer[];
+  recentMaintenance: CarMaintenance[];
+}
+
+export interface ClientAnalytics {
+  entity: { name: string; phone?: string | null };
+  metrics: {
+    totalOrders: number;
+    completed: number;
+    cancelled: number;
+    planned: number;
+    avgDurationMinutes: number;
+    uniqueRoutes: number;
+    uniqueDrivers: number;
+    uniqueCars: number;
+  };
+  topDrivers: Array<{ name: string; total: number }>;
+  topCars: Array<{ name: string; total: number }>;
+  topRoutes: Array<{ route: string; total: number }>;
+  recentOrders: Transfer[];
 }
 
 export interface TransferHistory {
@@ -99,4 +206,23 @@ export interface DashboardData {
     avgDurationMinutes: number;
     overduePlannedCount: number;
   } | null;
+  topDrivers?: Array<{
+    id: number;
+    fullName: string;
+    total: number;
+    completed: number;
+    cancelled: number;
+  }>;
+  topRoutes?: Array<{
+    route: string;
+    total: number;
+    completed: number;
+    cancelled: number;
+  }>;
+  hourlyLoad?: Array<{
+    hour: string;
+    total: number;
+    completed: number;
+    cancelled: number;
+  }>;
 }

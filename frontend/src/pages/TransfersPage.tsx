@@ -22,6 +22,13 @@ interface TransferFilters {
   startDate: string;
   endDate: string;
   status: string;
+  clientName: string;
+  origin: string;
+  destination: string;
+  commentMode: 'ALL' | 'WITH_COMMENT' | 'WITHOUT_COMMENT';
+  minDuration: string;
+  maxDuration: string;
+  overdueOnly: boolean;
 }
 
 interface PersistedTransfersState {
@@ -43,6 +50,13 @@ const DEFAULT_FILTERS: TransferFilters = {
   startDate: '',
   endDate: '',
   status: '',
+  clientName: '',
+  origin: '',
+  destination: '',
+  commentMode: 'ALL',
+  minDuration: '',
+  maxDuration: '',
+  overdueOnly: false,
 };
 
 function toLocalDateString(date: Date): string {
@@ -120,6 +134,13 @@ export default function TransfersPage() {
       if (filters.startDate) params.startDate = filters.startDate;
       if (filters.endDate) params.endDate = filters.endDate;
       if (filters.status) params.status = filters.status;
+      if (filters.clientName) params.clientName = filters.clientName;
+      if (filters.origin) params.origin = filters.origin;
+      if (filters.destination) params.destination = filters.destination;
+      if (filters.commentMode !== 'ALL') params.commentMode = filters.commentMode;
+      if (filters.minDuration) params.minDuration = Number(filters.minDuration);
+      if (filters.maxDuration) params.maxDuration = Number(filters.maxDuration);
+      if (filters.overdueOnly) params.overdueOnly = true;
 
       if (isDriver) {
         const tRes = await transfersApi.getAll(params);
@@ -189,15 +210,64 @@ export default function TransfersPage() {
   const filtered = transfers.filter((t) => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
+    const durationMinutes = Math.max(0, Math.round((new Date(t.endTime).getTime() - new Date(t.startTime).getTime()) / 60000));
+    const minDuration = filters.minDuration ? Number(filters.minDuration) : null;
+    const maxDuration = filters.maxDuration ? Number(filters.maxDuration) : null;
+
+    const byOrigin = !filters.origin || t.origin.toLowerCase().includes(filters.origin.toLowerCase());
+    const byDestination = !filters.destination || t.destination.toLowerCase().includes(filters.destination.toLowerCase());
+
+    const hasComment = Boolean(t.comment && t.comment.trim());
+    const byComment =
+      filters.commentMode === 'ALL' ||
+      (filters.commentMode === 'WITH_COMMENT' && hasComment) ||
+      (filters.commentMode === 'WITHOUT_COMMENT' && !hasComment);
+
+    const byMinDuration = minDuration === null || (Number.isFinite(minDuration) && durationMinutes >= minDuration);
+    const byMaxDuration = maxDuration === null || (Number.isFinite(maxDuration) && durationMinutes <= maxDuration);
+
+    const isOverdue = t.status === 'PLANNED' && new Date(t.endTime) < new Date();
+    const byOverdue = !filters.overdueOnly || isOverdue;
+
     return (
       t.origin.toLowerCase().includes(q) ||
       t.destination.toLowerCase().includes(q) ||
       (t.driver?.fullName || '').toLowerCase().includes(q) ||
+      (t.clientName || '').toLowerCase().includes(q) ||
       `${t.car?.brand || ''} ${t.car?.model || ''}`.toLowerCase().includes(q) ||
       (t.car?.plateNumber || '').toLowerCase().includes(q) ||
       (t.comment || '').toLowerCase().includes(q)
-    );
+    ) && byOrigin && byDestination && byComment && byMinDuration && byMaxDuration && byOverdue;
   });
+
+  const analytics = useMemo(() => {
+    const total = filtered.length;
+    const planned = filtered.filter((item) => item.status === 'PLANNED').length;
+    const completed = filtered.filter((item) => item.status === 'COMPLETED').length;
+    const cancelled = filtered.filter((item) => item.status === 'CANCELLED').length;
+    const overdue = filtered.filter((item) => item.status === 'PLANNED' && new Date(item.endTime) < new Date()).length;
+
+    const avgDuration = total
+      ? Math.round(filtered.reduce((acc, item) => {
+          const minutes = Math.max(0, Math.round((new Date(item.endTime).getTime() - new Date(item.startTime).getTime()) / 60000));
+          return acc + minutes;
+        }, 0) / total)
+      : 0;
+
+    const uniqueDrivers = new Set(filtered.map((item) => item.driverId)).size;
+    const uniqueCars = new Set(filtered.map((item) => item.carId)).size;
+
+    return {
+      total,
+      planned,
+      completed,
+      cancelled,
+      overdue,
+      avgDuration,
+      uniqueDrivers,
+      uniqueCars,
+    };
+  }, [filtered]);
 
   const sorted = [...filtered].sort((a, b) => {
     const direction = sortDir === 'asc' ? 1 : -1;
@@ -267,7 +337,14 @@ export default function TransfersPage() {
     !!filters.date ||
     !!filters.startDate ||
     !!filters.endDate ||
-    !!filters.status;
+    !!filters.status ||
+    !!filters.clientName ||
+    !!filters.origin ||
+    !!filters.destination ||
+    filters.commentMode !== 'ALL' ||
+    !!filters.minDuration ||
+    !!filters.maxDuration ||
+    filters.overdueOnly;
 
   return (
     <div>
@@ -303,6 +380,20 @@ export default function TransfersPage() {
 
       <div className="page-content">
         {error && <div className="alert alert-error">⚠️ {error}</div>}
+
+        <div className="stats-grid" style={{ marginBottom: 16 }}>
+          <div className="stat-card"><div className="stat-icon blue"><Calendar size={24} /></div><div><div className="stat-value">{analytics.total}</div><div className="stat-label">Заказов/трансферов</div></div></div>
+          <div className="stat-card"><div className="stat-icon yellow"><Clock size={24} /></div><div><div className="stat-value">{analytics.planned}</div><div className="stat-label">Запланировано</div></div></div>
+          <div className="stat-card"><div className="stat-icon green"><CheckCircle2 size={24} /></div><div><div className="stat-value">{analytics.completed}</div><div className="stat-label">Выполнено</div></div></div>
+          <div className="stat-card"><div className="stat-icon red"><XCircle size={24} /></div><div><div className="stat-value">{analytics.cancelled}</div><div className="stat-label">Отменено</div></div></div>
+        </div>
+
+        <div className="stats-grid" style={{ marginTop: -8, marginBottom: 16 }}>
+          <div className="stat-card"><div className="stat-icon red"><Clock size={24} /></div><div><div className="stat-value">{analytics.overdue}</div><div className="stat-label">Просроченные</div></div></div>
+          <div className="stat-card"><div className="stat-icon cyan"><Clock size={24} /></div><div><div className="stat-value">{analytics.avgDuration}м</div><div className="stat-label">Средняя длительность</div></div></div>
+          <div className="stat-card"><div className="stat-icon blue"><Filter size={24} /></div><div><div className="stat-value">{analytics.uniqueDrivers}</div><div className="stat-label">Водителей в выборке</div></div></div>
+          <div className="stat-card"><div className="stat-icon green"><Filter size={24} /></div><div><div className="stat-value">{analytics.uniqueCars}</div><div className="stat-label">Авто в выборке</div></div></div>
+        </div>
 
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -385,6 +476,71 @@ export default function TransfersPage() {
               </select>
             </div>
             <div className="form-group">
+              <label>Клиент</label>
+              <input
+                value={filters.clientName}
+                onChange={(e) => setFilters({ ...filters, clientName: e.target.value })}
+                placeholder="Имя клиента"
+              />
+            </div>
+            <div className="form-group">
+              <label>Откуда</label>
+              <input
+                value={filters.origin}
+                onChange={(e) => setFilters({ ...filters, origin: e.target.value })}
+                placeholder="Фильтр по origin"
+              />
+            </div>
+            <div className="form-group">
+              <label>Куда</label>
+              <input
+                value={filters.destination}
+                onChange={(e) => setFilters({ ...filters, destination: e.target.value })}
+                placeholder="Фильтр по destination"
+              />
+            </div>
+            <div className="form-group">
+              <label>Комментарий</label>
+              <select
+                value={filters.commentMode}
+                onChange={(e) => setFilters({ ...filters, commentMode: e.target.value as TransferFilters['commentMode'] })}
+              >
+                <option value="ALL">Все</option>
+                <option value="WITH_COMMENT">Только с комментарием</option>
+                <option value="WITHOUT_COMMENT">Без комментария</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Мин. длит. (мин)</label>
+              <input
+                type="number"
+                min={0}
+                value={filters.minDuration}
+                onChange={(e) => setFilters({ ...filters, minDuration: e.target.value.replace(/[^0-9]/g, '') })}
+                placeholder="0"
+              />
+            </div>
+            <div className="form-group">
+              <label>Макс. длит. (мин)</label>
+              <input
+                type="number"
+                min={0}
+                value={filters.maxDuration}
+                onChange={(e) => setFilters({ ...filters, maxDuration: e.target.value.replace(/[^0-9]/g, '') })}
+                placeholder="240"
+              />
+            </div>
+            <div className="form-group" style={{ minWidth: 180 }}>
+              <label style={{ display: 'flex', alignItems: 'center', marginTop: 24 }}>
+                <input
+                  type="checkbox"
+                  checked={filters.overdueOnly}
+                  onChange={(e) => setFilters({ ...filters, overdueOnly: e.target.checked })}
+                />
+                Только просроченные
+              </label>
+            </div>
+            <div className="form-group">
               <label>Сортировка</label>
               <select value={sortKey} onChange={(e) => setSortKey(e.target.value as TransferSortKey)}>
                 <option value="date">По дате</option>
@@ -444,13 +600,14 @@ export default function TransfersPage() {
               </div>
             ) : (
               <>
-                <div className="table-container">
+                <div className="table-container desktop-only">
                   <table>
                     <thead>
                       <tr>
                         <th>#</th>
                         <th>Дата / Время</th>
                         <th>Маршрут</th>
+                        <th>Клиент</th>
                         <th>Водитель</th>
                         <th>Автомобиль</th>
                         <th>Статус</th>
@@ -482,6 +639,10 @@ export default function TransfersPage() {
                                 {t.destination}
                               </div>
                             </div>
+                          </td>
+                          <td>
+                            <div>{t.clientName || '—'}</div>
+                            <div style={{ color: 'var(--gray-500)', fontSize: 12 }}>{t.clientPhone || ''}</div>
                           </td>
                           <td>
                             <div className="entity-info">
@@ -559,6 +720,38 @@ export default function TransfersPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="compact-cards mobile-only">
+                  {paged.map((t) => (
+                    <div key={`m-${t.id}`} className="compact-card">
+                      <div className="entity-name">#{t.id} • {new Date(t.date).toLocaleDateString('ru-RU')}</div>
+                      <div className="compact-card-row"><span>Маршрут</span><span>{t.origin} → {t.destination}</span></div>
+                      <div className="compact-card-row"><span>Клиент</span><span>{t.clientName || '—'}</span></div>
+                      <div className="compact-card-row"><span>Водитель</span><span>{t.driver?.fullName || '—'}</span></div>
+                      <div className="compact-card-row"><span>Авто</span><span>{t.car?.brand} {t.car?.model}</span></div>
+                      <div className="compact-card-row"><span>Время</span><span>{formatTime(t.startTime)} — {formatTime(t.endTime)}</span></div>
+                      <div className="compact-card-row"><span>Статус</span><span className={`badge ${getTransferStatusClass(t.status)}`}>{getTransferStatusLabel(t.status)}</span></div>
+                      <div className="compact-card-row"><span>Комментарий</span><span>{t.comment || '—'}</span></div>
+                      {(canEdit || isDriver) && (
+                        <div className="actions" style={{ marginTop: 10 }}>
+                          {canEdit ? (
+                            <>
+                              <button className="btn btn-ghost btn-icon" onClick={() => { setDefaultModalDate(''); setEditTransfer(t); setShowModal(true); }} title="Редактировать"><Pencil size={15} /></button>
+                              {canDelete && <button className="btn btn-ghost btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(t.id)} title="Удалить"><Trash2 size={15} /></button>}
+                            </>
+                          ) : isDriver && t.status === 'PLANNED' ? (
+                            <>
+                              <button className="btn btn-ghost btn-icon" style={{ color: 'var(--success)' }} onClick={() => handleDriverStatus(t.id, 'COMPLETED')} title="Отметить выполненным"><CheckCircle2 size={15} /></button>
+                              <button className="btn btn-ghost btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDriverStatus(t.id, 'CANCELLED')} title="Отменить"><XCircle size={15} /></button>
+                            </>
+                          ) : (
+                            <span style={{ color: 'var(--gray-400)', fontSize: 12 }}>Действий нет</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
 
                 <div className="table-meta">

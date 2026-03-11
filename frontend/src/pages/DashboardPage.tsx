@@ -166,6 +166,108 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+
+        {!isDriver && (
+          <div className="page-grid" style={{ marginTop: 16 }}>
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">Топ водители (сегодня)</div>
+              </div>
+              {!data?.topDrivers?.length ? (
+                <div className="empty-state"><Users size={32} /><p>Нет данных</p></div>
+              ) : (
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Водитель</th>
+                        <th>Всего</th>
+                        <th>Вып.</th>
+                        <th>Отм.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.topDrivers.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.fullName}</td>
+                          <td>{item.total}</td>
+                          <td>{item.completed}</td>
+                          <td>{item.cancelled}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">Топ маршруты (сегодня)</div>
+              </div>
+              {!data?.topRoutes?.length ? (
+                <div className="empty-state"><MapPin size={32} /><p>Нет данных</p></div>
+              ) : (
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Маршрут</th>
+                        <th>Всего</th>
+                        <th>Вып.</th>
+                        <th>Отм.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.topRoutes.map((item) => (
+                        <tr key={item.route}>
+                          <td>{item.route}</td>
+                          <td>{item.total}</td>
+                          <td>{item.completed}</td>
+                          <td>{item.cancelled}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!isDriver && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-header">
+              <div className="card-title">Нагрузка по часам</div>
+            </div>
+            {!data?.hourlyLoad?.length ? (
+              <div className="empty-state"><Clock size={32} /><p>Нет данных</p></div>
+            ) : (
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Час</th>
+                      <th>Всего</th>
+                      <th>Выполнено</th>
+                      <th>Отменено</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.hourlyLoad.map((item) => (
+                      <tr key={item.hour}>
+                        <td>{item.hour}</td>
+                        <td>{item.total}</td>
+                        <td>{item.completed}</td>
+                        <td>{item.cancelled}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

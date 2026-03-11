@@ -19,6 +19,11 @@ function calcAverageDurationMinutes(items: { startTime: Date; endTime: Date; sta
   return Math.round(totalMinutes / valid.length);
 }
 
+function toHourKey(date: Date): string {
+  const hour = String(date.getHours()).padStart(2, '0');
+  return `${hour}:00`;
+}
+
 export async function getDashboard(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest;
 
@@ -110,6 +115,9 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
           completedToday,
           cancelledToday,
         },
+        topDrivers: [],
+        topRoutes: [],
+        hourlyLoad: [],
         kpi: {
           completionRate: toPercent(completedToday, todayTransfersCount),
           cancellationRate: toPercent(cancelledToday, todayTransfersCount),
@@ -157,9 +165,14 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
           date: { gte: today, lt: tomorrow },
         },
         select: {
+          id: true,
           startTime: true,
           endTime: true,
           status: true,
+          origin: true,
+          destination: true,
+          driverId: true,
+          driver: { select: { id: true, fullName: true } },
         },
       }),
       prisma.transfer.count({
@@ -186,6 +199,56 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
       (item) => item.status === 'PLANNED' && item.endTime < new Date()
     ).length;
 
+    const topDriverMap = new Map<number, { id: number; fullName: string; total: number; completed: number; cancelled: number }>();
+    todayTransfers.forEach((item) => {
+      const existing = topDriverMap.get(item.driverId) || {
+        id: item.driver.id,
+        fullName: item.driver.fullName,
+        total: 0,
+        completed: 0,
+        cancelled: 0,
+      };
+      existing.total += 1;
+      if (item.status === 'COMPLETED') existing.completed += 1;
+      if (item.status === 'CANCELLED') existing.cancelled += 1;
+      topDriverMap.set(item.driverId, existing);
+    });
+
+    const topDrivers = Array.from(topDriverMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    const routeMap = new Map<string, { route: string; total: number; completed: number; cancelled: number }>();
+    todayTransfers.forEach((item) => {
+      const key = `${item.origin} -> ${item.destination}`;
+      const existing = routeMap.get(key) || {
+        route: key,
+        total: 0,
+        completed: 0,
+        cancelled: 0,
+      };
+      existing.total += 1;
+      if (item.status === 'COMPLETED') existing.completed += 1;
+      if (item.status === 'CANCELLED') existing.cancelled += 1;
+      routeMap.set(key, existing);
+    });
+
+    const topRoutes = Array.from(routeMap.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    const hourlyMap = new Map<string, { hour: string; total: number; completed: number; cancelled: number }>();
+    todayTransfers.forEach((item) => {
+      const key = toHourKey(item.startTime);
+      const existing = hourlyMap.get(key) || { hour: key, total: 0, completed: 0, cancelled: 0 };
+      existing.total += 1;
+      if (item.status === 'COMPLETED') existing.completed += 1;
+      if (item.status === 'CANCELLED') existing.cancelled += 1;
+      hourlyMap.set(key, existing);
+    });
+
+    const hourlyLoad = Array.from(hourlyMap.values()).sort((a, b) => a.hour.localeCompare(b.hour));
+
     res.json({
       todayTransfersCount,
       freeCarsCount,
@@ -197,6 +260,9 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
         completedToday,
         cancelledToday,
       },
+      topDrivers,
+      topRoutes,
+      hourlyLoad,
       kpi: {
         completionRate: toPercent(completedToday, todayTransfers.length),
         cancellationRate: toPercent(cancelledToday, todayTransfers.length),

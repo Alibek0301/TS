@@ -20,7 +20,22 @@ function parseValidDate(value: unknown): Date | null {
 }
 
 export async function getTransfers(req: AuthRequest, res: Response): Promise<void> {
-  const { driverId, carId, date, startDate, endDate, status } = req.query;
+  const {
+    driverId,
+    carId,
+    date,
+    startDate,
+    endDate,
+    status,
+    origin,
+    destination,
+    clientName,
+    clientPhone,
+    commentMode,
+    minDuration,
+    maxDuration,
+    overdueOnly,
+  } = req.query;
 
   try {
     const where: any = {};
@@ -50,6 +65,42 @@ export async function getTransfers(req: AuthRequest, res: Response): Promise<voi
       where.carId = parsedCarId;
     }
     if (status) where.status = status;
+
+    if (origin) {
+      where.origin = {
+        contains: String(origin),
+        mode: 'insensitive',
+      };
+    }
+
+    if (destination) {
+      where.destination = {
+        contains: String(destination),
+        mode: 'insensitive',
+      };
+    }
+
+    if (clientName) {
+      where.clientName = {
+        contains: String(clientName),
+        mode: 'insensitive',
+      };
+    }
+
+    if (commentMode === 'WITH_COMMENT') {
+      where.comment = {
+        not: null,
+      };
+    }
+
+    if (commentMode === 'WITHOUT_COMMENT') {
+      where.OR = [{ comment: null }, { comment: '' }];
+    }
+
+    if (overdueOnly === 'true') {
+      where.status = TransferStatus.PLANNED;
+      where.endTime = { lt: new Date() };
+    }
 
     if (date) {
       const d = parseValidDate(date);
@@ -82,7 +133,7 @@ export async function getTransfers(req: AuthRequest, res: Response): Promise<voi
       }
     }
 
-    const transfers = await prisma.transfer.findMany({
+    let transfers = await prisma.transfer.findMany({
       where,
       include: {
         driver: { select: { id: true, fullName: true, phone: true, status: true } },
@@ -90,6 +141,30 @@ export async function getTransfers(req: AuthRequest, res: Response): Promise<voi
       },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
     });
+
+    const parsedMinDuration = minDuration !== undefined && minDuration !== '' ? Number(minDuration) : null;
+    const parsedMaxDuration = maxDuration !== undefined && maxDuration !== '' ? Number(maxDuration) : null;
+
+    if (parsedMinDuration !== null && (!Number.isFinite(parsedMinDuration) || parsedMinDuration < 0)) {
+      res.status(400).json({ error: 'Некорректный minDuration' });
+      return;
+    }
+
+    if (parsedMaxDuration !== null && (!Number.isFinite(parsedMaxDuration) || parsedMaxDuration < 0)) {
+      res.status(400).json({ error: 'Некорректный maxDuration' });
+      return;
+    }
+
+    if (parsedMinDuration !== null || parsedMaxDuration !== null) {
+      transfers = transfers.filter((item) => {
+        const durationMinutes = Math.max(0, Math.round((item.endTime.getTime() - item.startTime.getTime()) / 60000));
+
+        const byMin = parsedMinDuration === null || durationMinutes >= parsedMinDuration;
+        const byMax = parsedMaxDuration === null || durationMinutes <= parsedMaxDuration;
+
+        return byMin && byMax;
+      });
+    }
 
     res.json(transfers);
   } catch (error) {
@@ -138,7 +213,7 @@ export async function getTransfer(req: AuthRequest, res: Response): Promise<void
 }
 
 export async function createTransfer(req: AuthRequest, res: Response): Promise<void> {
-  const { date, startTime, endTime, origin, destination, driverId, carId, status, comment } = req.body;
+  const { date, startTime, endTime, origin, destination, clientName, clientPhone, driverId, carId, status, comment } = req.body;
 
   if (!date || !startTime || !endTime || !origin || !destination || !driverId || !carId) {
     res.status(400).json({ error: 'Заполните все обязательные поля' });
@@ -186,6 +261,8 @@ export async function createTransfer(req: AuthRequest, res: Response): Promise<v
         endTime: end,
         origin,
         destination,
+        clientName: clientName ? String(clientName).trim() : null,
+        clientPhone: clientPhone ? String(clientPhone).trim() : null,
         driverId: parsedDriverId,
         carId: parsedCarId,
         status: (status as TransferStatus) || TransferStatus.PLANNED,
@@ -218,7 +295,7 @@ export async function createTransfer(req: AuthRequest, res: Response): Promise<v
 
 export async function updateTransfer(req: AuthRequest, res: Response): Promise<void> {
   const { id } = req.params;
-  const { date, startTime, endTime, origin, destination, driverId, carId, status, comment } = req.body;
+  const { date, startTime, endTime, origin, destination, clientName, clientPhone, driverId, carId, status, comment } = req.body;
   const transferId = parsePositiveInt(id);
 
   if (!transferId) {
@@ -288,6 +365,8 @@ export async function updateTransfer(req: AuthRequest, res: Response): Promise<v
         endTime: end,
         origin: origin || existing.origin,
         destination: destination || existing.destination,
+        clientName: clientName !== undefined ? (clientName ? String(clientName).trim() : null) : existing.clientName,
+        clientPhone: clientPhone !== undefined ? (clientPhone ? String(clientPhone).trim() : null) : existing.clientPhone,
         driverId: driverIdNum,
         carId: carIdNum,
         status: status || existing.status,

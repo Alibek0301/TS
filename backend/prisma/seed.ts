@@ -153,13 +153,21 @@ async function main() {
 
   await prisma.transfer.upsert({
     where: { id: 1 },
-    update: {},
+    update: {
+      origin: 'Аэропорт Алматы',
+      destination: 'Отель Rixos',
+      clientName: 'ТОО KazTech',
+      clientPhone: '+7 (707) 111-22-33',
+      comment: 'VIP клиент',
+    },
     create: {
       date: today,
       startTime: startTime1,
       endTime: endTime1,
       origin: 'Аэропорт Алматы',
       destination: 'Отель Rixos',
+      clientName: 'ТОО KazTech',
+      clientPhone: '+7 (707) 111-22-33',
       driverId: driver1.id,
       carId: car1.id,
       status: TransferStatus.PLANNED,
@@ -174,13 +182,20 @@ async function main() {
 
   await prisma.transfer.upsert({
     where: { id: 2 },
-    update: {},
+    update: {
+      origin: 'Отель Rixos',
+      destination: 'Деловой центр',
+      clientName: 'ИП Altyn Travel',
+      clientPhone: '+7 (701) 555-77-99',
+    },
     create: {
       date: today,
       startTime: startTime2,
       endTime: endTime2,
       origin: 'Отель Rixos',
       destination: 'Деловой центр',
+      clientName: 'ИП Altyn Travel',
+      clientPhone: '+7 (701) 555-77-99',
       driverId: driver2.id,
       carId: car2.id,
       status: TransferStatus.PLANNED,

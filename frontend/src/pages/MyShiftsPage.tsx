@@ -7,6 +7,28 @@ import { formatTime, getTransferStatusClass, getTransferStatusLabel } from '../u
 
 type QuickFilter = 'TODAY' | 'WEEK' | 'COMPLETED' | 'ALL';
 
+interface PersistedMyShiftsState {
+  search: string;
+  quickFilter: QuickFilter;
+  statusFilter: 'ALL' | 'PLANNED' | 'COMPLETED' | 'CANCELLED';
+  withCommentOnly: boolean;
+  pageSize: number;
+}
+
+const STORAGE_KEY = 'ts_my_shifts_page_state_v1';
+
+function readPersistedState(): Partial<PersistedMyShiftsState> {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
 function toLocalDateString(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -30,14 +52,17 @@ function getWeekRange(date: Date) {
 }
 
 export default function MyShiftsPage() {
+  const persistedState = useMemo(() => readPersistedState(), []);
   const { showToast } = useToast();
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('TODAY');
+  const [search, setSearch] = useState(persistedState.search || '');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(persistedState.quickFilter || 'TODAY');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PLANNED' | 'COMPLETED' | 'CANCELLED'>(persistedState.statusFilter || 'ALL');
+  const [withCommentOnly, setWithCommentOnly] = useState(Boolean(persistedState.withCommentOnly));
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(persistedState.pageSize || 10);
 
   const load = async () => {
     setLoading(true);
@@ -91,13 +116,33 @@ export default function MyShiftsPage() {
     const q = search.trim().toLowerCase();
     if (!q) return transfers;
 
-    return transfers.filter((item) => (
+    return transfers.filter((item) => {
+      const byStatus = statusFilter === 'ALL' || item.status === statusFilter;
+      const byComment = !withCommentOnly || Boolean(item.comment && item.comment.trim());
+
+      return (
       item.origin.toLowerCase().includes(q) ||
       item.destination.toLowerCase().includes(q) ||
       `${item.car?.brand || ''} ${item.car?.model || ''}`.toLowerCase().includes(q) ||
       (item.car?.plateNumber || '').toLowerCase().includes(q)
-    ));
-  }, [transfers, search]);
+      ) && byStatus && byComment;
+    });
+  }, [transfers, search, statusFilter, withCommentOnly]);
+
+  const analytics = useMemo(() => {
+    const total = filtered.length;
+    const planned = filtered.filter((item) => item.status === 'PLANNED').length;
+    const completed = filtered.filter((item) => item.status === 'COMPLETED').length;
+    const cancelled = filtered.filter((item) => item.status === 'CANCELLED').length;
+    const avgDuration = total
+      ? Math.round(filtered.reduce((acc, item) => {
+          const minutes = Math.max(0, Math.round((new Date(item.endTime).getTime() - new Date(item.startTime).getTime()) / 60000));
+          return acc + minutes;
+        }, 0) / total)
+      : 0;
+
+    return { total, planned, completed, cancelled, avgDuration };
+  }, [filtered]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -105,7 +150,21 @@ export default function MyShiftsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, pageSize, quickFilter]);
+  }, [search, pageSize, quickFilter, statusFilter, withCommentOnly]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const stateToSave: PersistedMyShiftsState = {
+      search,
+      quickFilter,
+      statusFilter,
+      withCommentOnly,
+      pageSize,
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+  }, [search, quickFilter, statusFilter, withCommentOnly, pageSize]);
 
   const exportCsv = () => {
     if (!filtered.length) {
@@ -158,6 +217,17 @@ export default function MyShiftsPage() {
       <div className="page-content">
         {error && <div className="alert alert-error">⚠️ {error}</div>}
 
+        <div className="stats-grid" style={{ marginBottom: 16 }}>
+          <div className="stat-card"><div className="stat-icon blue"><Calendar size={24} /></div><div><div className="stat-value">{analytics.total}</div><div className="stat-label">Смен в выборке</div></div></div>
+          <div className="stat-card"><div className="stat-icon yellow"><Clock size={24} /></div><div><div className="stat-value">{analytics.planned}</div><div className="stat-label">Запланировано</div></div></div>
+          <div className="stat-card"><div className="stat-icon green"><CheckCircle2 size={24} /></div><div><div className="stat-value">{analytics.completed}</div><div className="stat-label">Выполнено</div></div></div>
+          <div className="stat-card"><div className="stat-icon red"><XCircle size={24} /></div><div><div className="stat-value">{analytics.cancelled}</div><div className="stat-label">Отменено</div></div></div>
+        </div>
+
+        <div className="stats-grid" style={{ marginTop: -8, marginBottom: 16 }}>
+          <div className="stat-card"><div className="stat-icon cyan"><Clock size={24} /></div><div><div className="stat-value">{analytics.avgDuration}м</div><div className="stat-label">Средняя длительность</div></div></div>
+        </div>
+
         <div className="card" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <Filter size={15} color="var(--gray-500)" />
@@ -179,6 +249,24 @@ export default function MyShiftsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+
+          <div className="filter-bar" style={{ marginTop: 12 }}>
+            <div className="form-group" style={{ minWidth: 180 }}>
+              <label>Статус</label>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'ALL' | 'PLANNED' | 'COMPLETED' | 'CANCELLED')}>
+                <option value="ALL">Все</option>
+                <option value="PLANNED">Запланирован</option>
+                <option value="COMPLETED">Выполнен</option>
+                <option value="CANCELLED">Отменён</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ minWidth: 220 }}>
+              <label style={{ display: 'flex', alignItems: 'center', marginTop: 24 }}>
+                <input type="checkbox" checked={withCommentOnly} onChange={(e) => setWithCommentOnly(e.target.checked)} />
+                Только с комментарием
+              </label>
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -198,7 +286,7 @@ export default function MyShiftsPage() {
               </div>
             ) : (
               <>
-                <div className="table-container">
+                <div className="table-container desktop-only">
                   <table>
                     <thead>
                       <tr>
@@ -272,6 +360,28 @@ export default function MyShiftsPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="compact-cards mobile-only">
+                  {paged.map((item) => (
+                    <div key={`m-${item.id}`} className="compact-card">
+                      <div className="entity-name">#{item.id} • {new Date(item.date).toLocaleDateString('ru-RU')}</div>
+                      <div className="compact-card-row"><span>Время</span><span>{formatTime(item.startTime)} — {formatTime(item.endTime)}</span></div>
+                      <div className="compact-card-row"><span>Маршрут</span><span>{item.origin} → {item.destination}</span></div>
+                      <div className="compact-card-row"><span>Авто</span><span>{item.car?.brand} {item.car?.model}</span></div>
+                      <div className="compact-card-row"><span>Статус</span><span className={`badge ${getTransferStatusClass(item.status)}`}>{getTransferStatusLabel(item.status)}</span></div>
+                      <div className="actions" style={{ marginTop: 10 }}>
+                        {item.status === 'PLANNED' ? (
+                          <>
+                            <button className="btn btn-ghost btn-icon" style={{ color: 'var(--success)' }} onClick={() => handleStatus(item.id, 'COMPLETED')} title="Отметить выполненным"><CheckCircle2 size={15} /></button>
+                            <button className="btn btn-ghost btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleStatus(item.id, 'CANCELLED')} title="Отменить"><XCircle size={15} /></button>
+                          </>
+                        ) : (
+                          <span style={{ color: 'var(--gray-400)', fontSize: 12 }}>Действий нет</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="table-meta">

@@ -4,10 +4,11 @@ import type { Car } from '../types';
 import { getCarStatusClass, getCarStatusLabel } from '../utils/helpers';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { Plus, Pencil, Trash2, CarFront, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, CarFront, Search, Wrench } from 'lucide-react';
 import CarModal from '../components/Cars/CarModal';
+import CarMaintenanceModal from '../components/Cars/CarMaintenanceModal';
 
-type CarSortKey = 'brand' | 'model' | 'plateNumber' | 'status' | 'transfers';
+type CarSortKey = 'brand' | 'model' | 'plateNumber' | 'status' | 'mileage' | 'transfers';
 
 export default function CarsPage() {
   const { user } = useAuth();
@@ -22,6 +23,7 @@ export default function CarsPage() {
   const [pageSize, setPageSize] = useState(10);
   const [showModal, setShowModal] = useState(false);
   const [editCar, setEditCar] = useState<Car | null>(null);
+  const [maintenanceCar, setMaintenanceCar] = useState<Car | null>(null);
   const [error, setError] = useState('');
 
   const canEdit = user?.role === 'ADMIN' || user?.role === 'DISPATCHER';
@@ -57,6 +59,10 @@ export default function CarsPage() {
 
     if (sortKey === 'transfers') {
       return ((a._count?.transfers ?? 0) - (b._count?.transfers ?? 0)) * direction;
+    }
+
+    if (sortKey === 'mileage') {
+      return (a.mileage - b.mileage) * direction;
     }
 
     const left = (a[sortKey] || '').toString().toLowerCase();
@@ -122,6 +128,7 @@ export default function CarsPage() {
               <option value="model">Сортировка: Модель</option>
               <option value="plateNumber">Сортировка: Госномер</option>
               <option value="status">Сортировка: Статус</option>
+              <option value="mileage">Сортировка: Пробег</option>
               <option value="transfers">Сортировка: Рейсы</option>
             </select>
 
@@ -150,7 +157,7 @@ export default function CarsPage() {
             </div>
           ) : (
             <>
-              <div className="table-container">
+              <div className="table-container desktop-only">
                 <table>
                   <thead>
                     <tr>
@@ -158,6 +165,8 @@ export default function CarsPage() {
                       <th>Автомобиль</th>
                       <th>Госномер</th>
                       <th>Статус</th>
+                      <th>Пробег</th>
+                      <th>ТО</th>
                       <th>Рейсов</th>
                       {canEdit && <th>Действия</th>}
                     </tr>
@@ -179,11 +188,29 @@ export default function CarsPage() {
                           <span className={`badge ${getCarStatusClass(c.status)}`}>
                             {getCarStatusLabel(c.status)}
                           </span>
+                          {c.isUnderRepair && <span className="badge badge-warning" style={{ marginLeft: 6 }}>Ремонт</span>}
+                        </td>
+                        <td>{c.mileage.toLocaleString('ru-RU')} км</td>
+                        <td>
+                          {c.nextServiceMileage ? (
+                            c.mileage >= c.nextServiceMileage ?
+                              <span className="badge badge-danger">Просрочено</span> :
+                              <span className="badge badge-info">до {c.nextServiceMileage.toLocaleString('ru-RU')} км</span>
+                          ) : (
+                            <span className="badge badge-gray">Не задано</span>
+                          )}
                         </td>
                         <td>{c._count?.transfers ?? 0}</td>
                         {canEdit && (
                           <td>
                             <div className="actions">
+                              <button
+                                className="btn btn-ghost btn-icon"
+                                onClick={() => setMaintenanceCar(c)}
+                                title="ТО и обслуживание"
+                              >
+                                <Wrench size={15} />
+                              </button>
                               <button
                                 className="btn btn-ghost btn-icon"
                                 onClick={() => { setEditCar(c); setShowModal(true); }}
@@ -210,6 +237,25 @@ export default function CarsPage() {
                 </table>
               </div>
 
+              <div className="compact-cards mobile-only">
+                {paged.map((c) => (
+                  <div key={`m-${c.id}`} className="compact-card">
+                    <div className="entity-name">{c.brand} {c.model}</div>
+                    <div className="compact-card-row"><span>Госномер</span><span className="chip">{c.plateNumber}</span></div>
+                    <div className="compact-card-row"><span>Статус</span><span className={`badge ${getCarStatusClass(c.status)}`}>{getCarStatusLabel(c.status)}</span></div>
+                    <div className="compact-card-row"><span>Пробег</span><span>{c.mileage.toLocaleString('ru-RU')} км</span></div>
+                    <div className="compact-card-row"><span>Рейсов</span><span>{c._count?.transfers ?? 0}</span></div>
+                    {canEdit && (
+                      <div className="actions" style={{ marginTop: 10 }}>
+                        <button className="btn btn-ghost btn-icon" onClick={() => setMaintenanceCar(c)} title="ТО и обслуживание"><Wrench size={15} /></button>
+                        <button className="btn btn-ghost btn-icon" onClick={() => { setEditCar(c); setShowModal(true); }} title="Редактировать"><Pencil size={15} /></button>
+                        {canDelete && <button className="btn btn-ghost btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(c.id)} title="Удалить"><Trash2 size={15} /></button>}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
               <div className="table-meta">
                 <span>Показано {paged.length} из {sorted.length}</span>
                 <div className="pagination">
@@ -228,6 +274,17 @@ export default function CarsPage() {
           car={editCar}
           onClose={() => { setShowModal(false); setEditCar(null); }}
           onSave={() => { setShowModal(false); setEditCar(null); load(); }}
+        />
+      )}
+
+      {maintenanceCar && (
+        <CarMaintenanceModal
+          car={maintenanceCar}
+          onClose={() => setMaintenanceCar(null)}
+          onUpdated={() => {
+            load();
+            carsApi.getById(maintenanceCar.id).then((res) => setMaintenanceCar(res.data)).catch(() => undefined);
+          }}
         />
       )}
     </div>

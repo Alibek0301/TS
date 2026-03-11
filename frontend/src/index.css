@@ -26,6 +26,8 @@
   --white: #ffffff;
   --sidebar-width: 260px;
   --header-height: 64px;
+  --mobile-topbar-height: 56px;
+  --mobile-bottom-nav-height: 62px;
   --radius: 8px;
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
@@ -59,6 +61,10 @@ body {
   top: 0;
   z-index: 100;
   transition: transform 0.3s ease;
+}
+
+.sidebar-backdrop {
+  display: none;
 }
 
 .sidebar-logo {
@@ -202,6 +208,73 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+}
+
+.mobile-topbar {
+  display: none;
+}
+
+.mobile-bottom-nav {
+  display: none;
+}
+
+.mobile-menu-btn,
+.mobile-close-btn {
+  border: 1px solid var(--gray-200);
+  background: var(--white);
+  color: var(--gray-700);
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.mobile-close-btn {
+  display: none;
+}
+
+.mobile-only {
+  display: none;
+}
+
+.desktop-only {
+  display: block;
+}
+
+.compact-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compact-card {
+  border: 1px solid var(--gray-200);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--white);
+}
+
+.compact-card .actions {
+  margin-top: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.compact-card .btn-icon {
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.compact-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--gray-600);
+  margin-top: 6px;
 }
 
 .page-header {
@@ -454,6 +527,12 @@ input, select, textarea {
   transition: border-color 0.15s, box-shadow 0.15s;
   outline: none;
   font-family: inherit;
+}
+
+input[type="checkbox"] {
+  width: auto;
+  margin-right: 8px;
+  accent-color: var(--primary);
 }
 
 input:focus, select:focus, textarea:focus {
@@ -803,12 +882,120 @@ textarea {
 
 /* Responsive */
 @media (max-width: 768px) {
+  .sidebar-backdrop.show {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 90;
+    display: block;
+  }
+
   .sidebar {
     transform: translateX(-100%);
+    z-index: 100;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .mobile-close-btn {
+    display: inline-flex;
+  }
+
+  .mobile-topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--mobile-topbar-height);
+    background: var(--white);
+    border-bottom: 1px solid var(--gray-200);
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+  }
+
+  .mobile-menu-btn,
+  .mobile-close-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .mobile-menu-btn svg,
+  .mobile-close-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mobile-topbar-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary);
   }
   
   .main-content {
     margin-left: 0;
+    padding-top: var(--mobile-topbar-height);
+    padding-bottom: var(--mobile-bottom-nav-height);
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--mobile-bottom-nav-height);
+    border-top: 1px solid var(--gray-200);
+    background: var(--white);
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    z-index: 85;
+  }
+
+  .mobile-bottom-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: var(--gray-500);
+    font-size: 11px;
+    font-weight: 600;
+    gap: 2px;
+  }
+
+  .mobile-bottom-item.active {
+    color: var(--primary);
+  }
+
+  .page-header {
+    position: static;
+    top: auto;
+    padding: 10px 12px;
+    min-height: 56px;
+    height: auto;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .page-header h2 {
+    font-size: 16px;
+  }
+
+  .page-content {
+    padding: 12px;
+  }
+
+  .filter-bar {
+    gap: 8px;
+  }
+
+  .filter-bar .form-group {
+    min-width: 100%;
   }
   
   .form-row {
@@ -821,6 +1008,36 @@ textarea {
   
   .page-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mobile-only {
+    display: block;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .modal {
+    max-height: 88vh;
+    border-radius: 10px;
+  }
+
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding-left: 14px;
+    padding-right: 14px;
   }
 }
 

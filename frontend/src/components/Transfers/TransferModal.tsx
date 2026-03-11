@@ -52,6 +52,8 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
     endTime: getDefaultEndTime(),
     origin: transfer?.origin || '',
     destination: transfer?.destination || '',
+    clientName: transfer?.clientName || '',
+    clientPhone: transfer?.clientPhone || '',
     driverId: transfer?.driverId?.toString() || '',
     carId: transfer?.carId?.toString() || '',
     status: transfer?.status || 'PLANNED',
@@ -101,6 +103,14 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
       return 'Комментарий должен быть не длиннее 300 символов';
     }
 
+    if (form.clientName.trim().length > 120) {
+      return 'Имя клиента должно быть не длиннее 120 символов';
+    }
+
+    if (form.clientPhone.trim().length > 30) {
+      return 'Телефон клиента должен быть не длиннее 30 символов';
+    }
+
     return null;
   };
 
@@ -123,6 +133,8 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
         endTime: buildDateTime(form.date, form.endTime),
         origin: form.origin.trim(),
         destination: form.destination.trim(),
+        clientName: form.clientName.trim() || undefined,
+        clientPhone: form.clientPhone.trim() || undefined,
         driverId: Number(form.driverId),
         carId: Number(form.carId),
         status: form.status,
@@ -219,6 +231,25 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
                   onChange={(e) => setForm({ ...form, destination: e.target.value })}
                   placeholder="Отель Rixos"
                   required
+                />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Клиент</label>
+                <input
+                  value={form.clientName}
+                  onChange={(e) => setForm({ ...form, clientName: e.target.value })}
+                  placeholder="Имя клиента или компания"
+                />
+              </div>
+              <div className="form-group">
+                <label>Телефон клиента</label>
+                <input
+                  value={form.clientPhone}
+                  onChange={(e) => setForm({ ...form, clientPhone: e.target.value })}
+                  placeholder="+7 (...) ..."
                 />
               </div>
             </div>

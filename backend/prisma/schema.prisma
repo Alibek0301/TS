@@ -22,6 +22,14 @@ enum CarStatus {
   BUSY
 }
 
+enum CarMaintenanceType {
+  OIL_CHANGE
+  FLUID_CHANGE
+  INSPECTION
+  REPAIR
+  OTHER
+}
+
 enum TransferStatus {
   PLANNED
   COMPLETED
@@ -66,17 +74,47 @@ model Driver {
 }
 
 model Car {
-  id        Int       @id @default(autoincrement())
-  brand     String
-  model     String
-  plateNumber String  @unique
-  status    CarStatus @default(FREE)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id                           Int       @id @default(autoincrement())
+  brand                        String
+  model                        String
+  plateNumber                  String    @unique
+  status                       CarStatus @default(FREE)
+  mileage                      Int       @default(0)
+  nextServiceMileage           Int?
+  lastServiceMileage           Int?
+  lastServiceDate              DateTime?
+  oilChangeMileage             Int?
+  coolantChangeDate            DateTime?
+  brakeFluidChangeDate         DateTime?
+  transmissionFluidChangeDate  DateTime?
+  isUnderRepair                Boolean   @default(false)
+  repairNotes                  String?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 
   transfers Transfer[]
+  maintenanceRecords CarMaintenance[]
 
   @@map("cars")
+}
+
+model CarMaintenance {
+  id                        Int                @id @default(autoincrement())
+  carId                     Int
+  type                      CarMaintenanceType
+  mileage                   Int
+  performedAt               DateTime
+  notes                     String?
+  cost                      Float?
+  oilChanged                Boolean            @default(false)
+  coolantChanged            Boolean            @default(false)
+  brakeFluidChanged         Boolean            @default(false)
+  transmissionFluidChanged  Boolean            @default(false)
+  createdAt                 DateTime           @default(now())
+
+  car Car @relation(fields: [carId], references: [id], onDelete: Cascade)
+
+  @@map("car_maintenance")
 }
 
 model Transfer {
@@ -86,6 +124,8 @@ model Transfer {
   endTime     DateTime
   origin      String
   destination String
+  clientName  String?
+  clientPhone String?
   driverId    Int
   carId       Int
   status      TransferStatus @default(PLANNED)

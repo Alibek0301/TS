@@ -18,6 +18,10 @@ export default function CarModal({ car, onClose, onSave }: Props) {
     model: car?.model || '',
     plateNumber: car?.plateNumber || '',
     status: car?.status || 'FREE',
+    mileage: car?.mileage?.toString() || '0',
+    nextServiceMileage: car?.nextServiceMileage ? String(car.nextServiceMileage) : '',
+    isUnderRepair: car?.isUnderRepair || false,
+    repairNotes: car?.repairNotes || '',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,6 +44,18 @@ export default function CarModal({ car, onClose, onSave }: Props) {
       return 'Введите корректный госномер';
     }
 
+    const mileageNum = Number(form.mileage);
+    if (!Number.isInteger(mileageNum) || mileageNum < 0) {
+      return 'Пробег должен быть целым числом >= 0';
+    }
+
+    if (form.nextServiceMileage.trim()) {
+      const nextServiceMileageNum = Number(form.nextServiceMileage);
+      if (!Number.isInteger(nextServiceMileageNum) || nextServiceMileageNum <= 0) {
+        return 'Пробег следующего ТО должен быть целым числом > 0';
+      }
+    }
+
     return null;
   };
 
@@ -60,6 +76,9 @@ export default function CarModal({ car, onClose, onSave }: Props) {
         brand: form.brand.trim(),
         model: form.model.trim(),
         plateNumber: form.plateNumber.trim().toUpperCase(),
+        mileage: Number(form.mileage),
+        nextServiceMileage: form.nextServiceMileage.trim() ? Number(form.nextServiceMileage) : null,
+        repairNotes: form.repairNotes.trim() || null,
       };
 
       if (isEdit) {
@@ -129,6 +148,49 @@ export default function CarModal({ car, onClose, onSave }: Props) {
                   <option value="BUSY">Занята</option>
                 </select>
               </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label className="required">Пробег (км)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.mileage}
+                  onChange={(e) => setForm({ ...form, mileage: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Следующее ТО (км)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.nextServiceMileage}
+                  onChange={(e) => setForm({ ...form, nextServiceMileage: e.target.value })}
+                  placeholder="150000"
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={form.isUnderRepair}
+                  onChange={(e) => setForm({ ...form, isUnderRepair: e.target.checked })}
+                />
+                {' '}Автомобиль на ремонте
+              </label>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Примечание по ремонту</label>
+              <textarea
+                value={form.repairNotes}
+                onChange={(e) => setForm({ ...form, repairNotes: e.target.value })}
+                placeholder="Описание неисправности или текущих работ"
+              />
             </div>
           </div>
 

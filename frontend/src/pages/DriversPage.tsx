@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { driversApi } from '../api';
 import type { Driver } from '../types';
 import { getDriverStatusClass, getDriverStatusLabel } from '../utils/helpers';
@@ -11,17 +11,44 @@ import DriverModal from '../components/Drivers/DriverModal';
 
 type DriverSortKey = 'fullName' | 'phone' | 'status' | 'transfers';
 
+interface PersistedDriversState {
+  search: string;
+  statusFilter: 'ALL' | Driver['status'];
+  hasNoteFilter: 'ALL' | 'WITH_NOTE' | 'WITHOUT_NOTE';
+  minTransfersFilter: string;
+  sortKey: DriverSortKey;
+  sortDir: 'asc' | 'desc';
+  pageSize: number;
+}
+
+const STORAGE_KEY = 'ts_drivers_page_state_v1';
+
+function readPersistedState(): Partial<PersistedDriversState> {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
 export default function DriversPage() {
+  const persistedState = useMemo(() => readPersistedState(), []);
   const { user } = useAuth();
   const { showToast } = useToast();
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | Driver['status']>('ALL');
-  const [sortKey, setSortKey] = useState<DriverSortKey>('fullName');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [search, setSearch] = useState(persistedState.search || '');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | Driver['status']>(persistedState.statusFilter || 'ALL');
+  const [hasNoteFilter, setHasNoteFilter] = useState<'ALL' | 'WITH_NOTE' | 'WITHOUT_NOTE'>(persistedState.hasNoteFilter || 'ALL');
+  const [minTransfersFilter, setMinTransfersFilter] = useState(persistedState.minTransfersFilter || '');
+  const [sortKey, setSortKey] = useState<DriverSortKey>(persistedState.sortKey || 'fullName');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(persistedState.sortDir || 'asc');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(persistedState.pageSize || 10);
   const [showModal, setShowModal] = useState(false);
   const [editDriver, setEditDriver] = useState<Driver | null>(null);
   const [error, setError] = useState('');
@@ -51,8 +78,26 @@ export default function DriversPage() {
       d.fullName.toLowerCase().includes(search.toLowerCase()) ||
       d.phone.includes(search);
     const byStatus = statusFilter === 'ALL' || d.status === statusFilter;
-    return bySearch && byStatus;
+    const hasNote = Boolean(d.note && d.note.trim());
+    const byNote =
+      hasNoteFilter === 'ALL' ||
+      (hasNoteFilter === 'WITH_NOTE' && hasNote) ||
+      (hasNoteFilter === 'WITHOUT_NOTE' && !hasNote);
+
+    const minTransfers = minTransfersFilter ? Number(minTransfersFilter) : null;
+    const byMinTransfers = minTransfers === null || (d._count?.transfers ?? 0) >= minTransfers;
+
+    return bySearch && byStatus && byNote && byMinTransfers;
   });
+
+  const analytics = {
+    total: filtered.length,
+    active: filtered.filter((d) => d.status === 'ACTIVE').length,
+    dayOff: filtered.filter((d) => d.status === 'DAY_OFF').length,
+    vacation: filtered.filter((d) => d.status === 'VACATION').length,
+    withNotes: filtered.filter((d) => d.note && d.note.trim()).length,
+    totalTransfers: filtered.reduce((acc, d) => acc + (d._count?.transfers ?? 0), 0),
+  };
 
   const sorted = [...filtered].sort((a, b) => {
     const direction = sortDir === 'asc' ? 1 : -1;
@@ -72,7 +117,23 @@ export default function DriversPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, sortKey, sortDir, pageSize]);
+  }, [search, statusFilter, hasNoteFilter, minTransfersFilter, sortKey, sortDir, pageSize]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const stateToSave: PersistedDriversState = {
+      search,
+      statusFilter,
+      hasNoteFilter,
+      minTransfersFilter,
+      sortKey,
+      sortDir,
+      pageSize,
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+  }, [search, statusFilter, hasNoteFilter, minTransfersFilter, sortKey, sortDir, pageSize]);
 
   const handleDelete = async (id: number) => {
     if (!confirm('Удалить водителя?')) return;
@@ -107,6 +168,18 @@ export default function DriversPage() {
       <div className="page-content">
         {error && <div className="alert alert-error">⚠️ {error}</div>}
 
+        <div className="stats-grid" style={{ marginBottom: 16 }}>
+          <div className="stat-card"><div className="stat-icon blue"><Users size={24} /></div><div><div className="stat-value">{analytics.total}</div><div className="stat-label">Водителей в выборке</div></div></div>
+          <div className="stat-card"><div className="stat-icon green"><Users size={24} /></div><div><div className="stat-value">{analytics.active}</div><div className="stat-label">Активных</div></div></div>
+          <div className="stat-card"><div className="stat-icon yellow"><Users size={24} /></div><div><div className="stat-value">{analytics.dayOff}</div><div className="stat-label">Выходной</div></div></div>
+          <div className="stat-card"><div className="stat-icon cyan"><Users size={24} /></div><div><div className="stat-value">{analytics.vacation}</div><div className="stat-label">В отпуске</div></div></div>
+        </div>
+
+        <div className="stats-grid" style={{ marginTop: -8, marginBottom: 16 }}>
+          <div className="stat-card"><div className="stat-icon blue"><Users size={24} /></div><div><div className="stat-value">{analytics.totalTransfers}</div><div className="stat-label">Рейсов в выборке</div></div></div>
+          <div className="stat-card"><div className="stat-icon yellow"><Users size={24} /></div><div><div className="stat-value">{analytics.withNotes}</div><div className="stat-label">С примечаниями</div></div></div>
+        </div>
+
         <div className="card">
           <div className="list-toolbar">
             <div className="search-input-wrapper">
@@ -124,6 +197,20 @@ export default function DriversPage() {
               <option value="DAY_OFF">Выходной</option>
               <option value="VACATION">Отпуск</option>
             </select>
+
+            <select value={hasNoteFilter} onChange={(e) => setHasNoteFilter(e.target.value as 'ALL' | 'WITH_NOTE' | 'WITHOUT_NOTE')}>
+              <option value="ALL">Все по примечанию</option>
+              <option value="WITH_NOTE">Только с примечанием</option>
+              <option value="WITHOUT_NOTE">Без примечания</option>
+            </select>
+
+            <input
+              type="number"
+              min={0}
+              value={minTransfersFilter}
+              onChange={(e) => setMinTransfersFilter(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="Мин. рейсов"
+            />
 
             <select value={sortKey} onChange={(e) => setSortKey(e.target.value as DriverSortKey)}>
               <option value="fullName">Сортировка: ФИО</option>
@@ -157,7 +244,7 @@ export default function DriversPage() {
             </div>
           ) : (
             <>
-              <div className="table-container">
+              <div className="table-container desktop-only">
                 <table>
                   <thead>
                     <tr>
@@ -219,6 +306,24 @@ export default function DriversPage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="compact-cards mobile-only">
+                {paged.map((d) => (
+                  <div key={`m-${d.id}`} className="compact-card">
+                    <div className="entity-name">{d.fullName}</div>
+                    <div className="compact-card-row"><span>Телефон</span><span>{d.phone}</span></div>
+                    <div className="compact-card-row"><span>Статус</span><span className={`badge ${getDriverStatusClass(d.status)}`}>{getDriverStatusLabel(d.status)}</span></div>
+                    <div className="compact-card-row"><span>Рейсов</span><span>{d._count?.transfers ?? 0}</span></div>
+                    <div className="compact-card-row"><span>Примечание</span><span>{d.note || '—'}</span></div>
+                    {canEdit && (
+                      <div className="actions" style={{ marginTop: 10 }}>
+                        <button className="btn btn-ghost btn-icon" onClick={() => { setEditDriver(d); setShowModal(true); }} title="Редактировать"><Pencil size={15} /></button>
+                        {canDelete && <button className="btn btn-ghost btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(d.id)} title="Удалить"><Trash2 size={15} /></button>}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
 
               <div className="table-meta">

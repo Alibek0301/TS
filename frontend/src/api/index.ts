@@ -1,5 +1,19 @@
 import api from './client';
-import type { Driver, Car, Transfer, DashboardData, ManagedUser, TransferHistory } from '../types';
+import type {
+  Driver,
+  Car,
+  Transfer,
+  DashboardData,
+  ManagedUser,
+  TransferHistory,
+  CarMaintenance,
+  CarMaintenanceType,
+  CarMaintenanceLogItem,
+  ClientOption,
+  DriverAnalytics,
+  CarAnalytics,
+  ClientAnalytics,
+} from '../types';
 
 // Auth
 export const authApi = {
@@ -23,6 +37,27 @@ export const carsApi = {
   getById: (id: number) => api.get<Car>(`/cars/${id}`),
   create: (data: Partial<Car>) => api.post<Car>('/cars', data),
   update: (id: number, data: Partial<Car>) => api.put<Car>(`/cars/${id}`, data),
+  getMaintenance: (id: number) => api.get<CarMaintenance[]>(`/cars/${id}/maintenance`),
+  addMaintenance: (id: number, data: {
+    type: CarMaintenanceType;
+    mileage: number;
+    performedAt: string;
+    notes?: string;
+    cost?: number;
+    oilChanged?: boolean;
+    coolantChanged?: boolean;
+    brakeFluidChanged?: boolean;
+    transmissionFluidChanged?: boolean;
+    nextServiceMileage?: number;
+    setFreeAfterService?: boolean;
+  }) => api.post<{ record: CarMaintenance; car: Car }>(`/cars/${id}/maintenance`, data),
+  getMaintenanceLog: (params?: {
+    carId?: number;
+    type?: CarMaintenanceType;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  }) => api.get<CarMaintenanceLogItem[]>('/cars/maintenance/log', { params }),
   delete: (id: number) => api.delete(`/cars/${id}`),
 };
 
@@ -35,6 +70,13 @@ export const transfersApi = {
     startDate?: string;
     endDate?: string;
     status?: string;
+    clientName?: string;
+    origin?: string;
+    destination?: string;
+    commentMode?: 'ALL' | 'WITH_COMMENT' | 'WITHOUT_COMMENT';
+    minDuration?: number;
+    maxDuration?: number;
+    overdueOnly?: boolean;
   }) => api.get<Transfer[]>('/transfers', { params }),
   getById: (id: number) => api.get<Transfer>(`/transfers/${id}`),
   getRecentHistory: (params?: {
@@ -51,6 +93,13 @@ export const transfersApi = {
   updateMyStatus: (id: number, status: 'COMPLETED' | 'CANCELLED') =>
     api.patch<Transfer>(`/transfers/${id}/my-status`, { status }),
   delete: (id: number) => api.delete(`/transfers/${id}`),
+};
+
+export const analyticsApi = {
+  getClients: () => api.get<ClientOption[]>('/analytics/clients'),
+  getDriver: (id: number) => api.get<DriverAnalytics>(`/analytics/drivers/${id}`),
+  getCar: (id: number) => api.get<CarAnalytics>(`/analytics/cars/${id}`),
+  getClient: (name: string) => api.get<ClientAnalytics>(`/analytics/clients/${encodeURIComponent(name)}`),
 };
 
 // Dashboard
