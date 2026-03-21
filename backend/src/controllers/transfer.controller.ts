@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { checkScheduleConflicts } from '../utils/conflict.utils';
-import { TransferStatus } from '@prisma/client';
+import { Prisma, TransferStatus } from '@prisma/client';
 import { ensureWaybillForTransfer } from '../utils/waybill.utils';
 
 interface AuthRequest extends Request {
@@ -889,6 +889,8 @@ export async function saveTransferFilterPreset(req: AuthRequest, res: Response):
     return;
   }
 
+  const stateJson = state as unknown as Prisma.InputJsonValue;
+
   try {
     const existingByName = await prisma.transferFilterPreset.findUnique({
       where: {
@@ -927,13 +929,13 @@ export async function saveTransferFilterPreset(req: AuthRequest, res: Response):
           },
         },
         update: {
-          state,
+          state: stateJson,
           isDefault: Boolean(isDefault),
         },
         create: {
           userId: req.user!.id,
           name: normalizedName,
-          state,
+          state: stateJson,
           isDefault: Boolean(isDefault),
         },
       });

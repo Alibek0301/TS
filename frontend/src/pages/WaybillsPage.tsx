@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, Filter, Printer, RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { Download, FileText, Filter, Printer, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { waybillsApi } from '../api';
 import type { Waybill } from '../types';
 import { useToast } from '../context/ToastContext';
@@ -37,6 +37,34 @@ export default function WaybillsPage() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Waybill | null>(null);
   const [saving, setSaving] = useState(false);
+  const [problemOnly, setProblemOnly] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  const getMissingForIssued = (item: Waybill): string[] => {
+    const missing: string[] = [];
+    if (!item.driverLicenseNumber) missing.push('Удостоверение');
+    if (item.odometerStart === null || item.odometerStart === undefined) missing.push('Одометр выезд');
+    if (!item.mechanicName) missing.push('Механик');
+    if (!item.medicName) missing.push('Медработник');
+    if (item.preTripCheckPassed !== true) missing.push('Предрейсовый техосмотр');
+    if (item.preTripMedicalPassed !== true) missing.push('Предрейсовый медосмотр');
+    return missing;
+  };
+
+  const getMissingForClosed = (item: Waybill): string[] => {
+    const missing = [...getMissingForIssued(item)];
+    if (item.odometerEnd === null || item.odometerEnd === undefined) missing.push('Одометр возврат');
+    if (item.postTripCheckPassed !== true) missing.push('Послерейсовый техосмотр');
+    if (item.postTripMedicalPassed !== true) missing.push('Послерейсовый медосмотр');
+    if (
+      item.odometerStart !== null && item.odometerStart !== undefined &&
+      item.odometerEnd !== null && item.odometerEnd !== undefined &&
+      item.odometerEnd < item.odometerStart
+    ) {
+      missing.push('Одометр возврат < выезд');
+    }
+    return Array.from(new Set(missing));
+  };
 
   const load = async () => {
     setLoading(true);
@@ -47,6 +75,7 @@ export default function WaybillsPage() {
         search: search.trim() || undefined,
       });
       setRows(res.data);
+      setSelectedIds((prev) => prev.filter((id) => res.data.some((item) => item.id === id)));
       setError('');
     } catch (err: any) {
       const message = err.response?.data?.error || 'Не удалось загрузить путевые листы';
@@ -61,12 +90,30 @@ export default function WaybillsPage() {
     load();
   }, [date, status]);
 
+  useEffect(() => {
+    const t = setTimeout(() => {
+      load();
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const stats = useMemo(() => ({
     total: rows.length,
     drafts: rows.filter((r) => r.status === 'DRAFT').length,
     issued: rows.filter((r) => r.status === 'ISSUED').length,
     closed: rows.filter((r) => r.status === 'CLOSED').length,
   }), [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (!problemOnly) return rows;
+    return rows.filter((item) => {
+      const targetMissing = item.status === 'CLOSED' ? getMissingForClosed(item) : getMissingForIssued(item);
+      return targetMissing.length > 0;
+    });
+  }, [rows, problemOnly]);
+
+  const allFilteredIds = useMemo(() => filteredRows.map((item) => item.id), [filteredRows]);
+  const allFilteredSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedIds.includes(id));
 
   const autoGenerate = async () => {
     try {
@@ -79,6 +126,142 @@ export default function WaybillsPage() {
     } catch (err: any) {
       const message = err.response?.data?.error || 'Не удалось выполнить автогенерацию';
       showToast(message, 'error');
+    }
+  };
+
+  const toggleSelectRow = (id: number, checked: boolean) => {
+    setSelectedIds((prev) => {
+      if (checked) {
+        if (prev.includes(id)) return prev;
+        return [...prev, id];
+      }
+      return prev.filter((item) => item !== id);
+    });
+  };
+
+  const toggleSelectAllFiltered = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      if (checked) {
+        const merged = new Set([...prev, ...allFilteredIds]);
+        return Array.from(merged);
+      }
+      return prev.filter((id) => !allFilteredIds.includes(id));
+    });
+  };
+
+  const bulkSetStatus = async (nextStatus: Waybill['status']) => {
+    if (!selectedIds.length) {
+      showToast('Сначала выберите путевые листы', 'error');
+      return;
+    }
+    try {
+      const res = await waybillsApi.bulkUpdateStatus(selectedIds, nextStatus);
+      const firstSkip = res.data.skipped?.[0];
+      showToast(
+        `Обновлено ${res.data.updatedCount}/${res.data.requestedCount}${firstSkip ? `, пропуск: ${firstSkip.number} (${firstSkip.reason})` : ''}`,
+        res.data.updatedCount > 0 ? 'success' : 'error'
+      );
+      await load();
+      setSelectedIds([]);
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось выполнить массовую смену статуса';
+      showToast(message, 'error');
+    }
+  };
+
+  const bulkMarkPrinted = async () => {
+    if (!selectedIds.length) {
+      showToast('Сначала выберите путевые листы', 'error');
+      return;
+    }
+    try {
+      const res = await waybillsApi.bulkMarkPrinted(selectedIds);
+      showToast(`Отмечено как распечатано: ${res.data.updatedCount}/${res.data.requestedCount}`, 'success');
+      await load();
+      setSelectedIds([]);
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось массово отметить печать';
+      showToast(message, 'error');
+    }
+  };
+
+  const exportCsvLocal = () => {
+    const source = filteredRows;
+    if (!source.length) {
+      showToast('Нет данных для экспорта', 'error');
+      return;
+    }
+
+    const escapeCsv = (value: unknown): string => {
+      const raw = String(value ?? '');
+      if (raw.includes('"') || raw.includes(',') || raw.includes('\n')) {
+        return `"${raw.replace(/"/g, '""')}"`;
+      }
+      return raw;
+    };
+
+    const header = [
+      'Номер',
+      'Дата выдачи',
+      'Период с',
+      'Период по',
+      'Статус',
+      'Водитель',
+      'Госномер',
+      'Маршрут',
+      'Удостоверение',
+      'Одометр выезд',
+      'Одометр возврат',
+      'Механик',
+      'Медработник',
+      'Дата печати',
+    ];
+
+    const lines = source.map((item) => [
+      item.number,
+      new Date(item.issueDate).toLocaleDateString('ru-RU'),
+      formatDateTime(item.validFrom),
+      formatDateTime(item.validTo),
+      getWaybillStatusLabel(item.status),
+      item.driverName,
+      item.vehiclePlateNumber,
+      item.route,
+      item.driverLicenseNumber || '',
+      item.odometerStart ?? '',
+      item.odometerEnd ?? '',
+      item.mechanicName || '',
+      item.medicName || '',
+      item.printedAt ? formatDateTime(item.printedAt) : '',
+    ]);
+
+    const csv = [header, ...lines].map((row) => row.map(escapeCsv).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `waybills-${date}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportCsv = async () => {
+    try {
+      const res = await waybillsApi.exportCsv({
+        date,
+        status: status === 'ALL' ? undefined : status,
+        search: search.trim() || undefined,
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `waybills-${date}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Экспорт выполнен', 'success');
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось выгрузить CSV с сервера, использован локальный экспорт';
+      showToast(message, 'error');
+      exportCsvLocal();
     }
   };
 
@@ -109,6 +292,17 @@ export default function WaybillsPage() {
       showToast(message, 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const quickSetStatus = async (item: Waybill, nextStatus: Waybill['status']) => {
+    try {
+      await waybillsApi.update(item.id, { status: nextStatus });
+      showToast(`Статус изменен: ${getWaybillStatusLabel(nextStatus)}`, 'success');
+      await load();
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось изменить статус';
+      showToast(message, 'error');
     }
   };
 
@@ -226,6 +420,7 @@ export default function WaybillsPage() {
       <div className="page-header">
         <h2>Путевые листы</h2>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={exportCsv}><Download size={16} /> Экспорт CSV</button>
           <button className="btn btn-secondary" onClick={load}><RefreshCw size={16} /> Обновить</button>
           <button className="btn btn-primary" onClick={autoGenerate}><FileText size={16} /> Автосформировать за дату</button>
         </div>
@@ -267,30 +462,59 @@ export default function WaybillsPage() {
             </div>
             <button className="btn btn-secondary" onClick={load}><Filter size={16} /> Применить</button>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--gray-600)' }}>
+              <input type="checkbox" checked={problemOnly} onChange={(e) => setProblemOnly(e.target.checked)} />
+              Только проблемные (не хватает реквизитов)
+            </label>
+            <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>Выбрано: {selectedIds.length}</span>
+            <button className="btn btn-secondary btn-sm" onClick={() => bulkSetStatus('ISSUED')}>Массово выдать</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => bulkSetStatus('CLOSED')}>Массово закрыть</button>
+            <button className="btn btn-secondary btn-sm" onClick={bulkMarkPrinted}>Массово отметить печать</button>
+            {selectedIds.length > 0 && (
+              <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds([])}>Снять выделение</button>
+            )}
+          </div>
         </div>
 
         <div className="card">
           {loading ? (
             <div className="table-skeleton">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton-row" />)}</div>
-          ) : rows.length === 0 ? (
+          ) : filteredRows.length === 0 ? (
             <div className="empty-state"><FileText size={40} /><p>Путевые листы не найдены</p></div>
           ) : (
             <div className="table-container">
               <table>
                 <thead>
                   <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={(e) => toggleSelectAllFiltered(e.target.checked)}
+                        title="Выбрать все по текущему фильтру"
+                      />
+                    </th>
                     <th>№</th>
                     <th>Дата/период</th>
                     <th>Водитель</th>
                     <th>ТС</th>
                     <th>Маршрут</th>
                     <th>Статус</th>
+                    <th>Готовность</th>
                     <th>Действия</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((item) => (
+                  {filteredRows.map((item) => (
                     <tr key={item.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(item.id)}
+                          onChange={(e) => toggleSelectRow(item.id, e.target.checked)}
+                        />
+                      </td>
                       <td>{item.number}</td>
                       <td>
                         <div>{new Date(item.issueDate).toLocaleDateString('ru-RU')}</div>
@@ -301,8 +525,20 @@ export default function WaybillsPage() {
                       <td>{item.route}</td>
                       <td><span className={`badge ${getWaybillStatusClass(item.status)}`}>{getWaybillStatusLabel(item.status)}</span></td>
                       <td>
+                        {(() => {
+                          const missing = item.status === 'CLOSED' ? getMissingForClosed(item) : getMissingForIssued(item);
+                          return missing.length ? (
+                            <span title={missing.join(', ')} style={{ color: 'var(--danger)', fontSize: 12 }}>Не готов ({missing.length})</span>
+                          ) : (
+                            <span style={{ color: 'var(--success)', fontSize: 12 }}>Готов</span>
+                          );
+                        })()}
+                      </td>
+                      <td>
                         <div className="actions">
                           <button className="btn btn-ghost btn-sm" onClick={() => setSelected(item)}>Открыть</button>
+                          {item.status !== 'ISSUED' && <button className="btn btn-ghost btn-sm" onClick={() => quickSetStatus(item, 'ISSUED')}>Выдать</button>}
+                          {item.status !== 'CLOSED' && <button className="btn btn-ghost btn-sm" onClick={() => quickSetStatus(item, 'CLOSED')}>Закрыть</button>}
                           <button className="btn btn-ghost btn-sm" onClick={() => exportPdf(item)}>PDF</button>
                           <button className="btn btn-ghost btn-icon" onClick={() => printWaybill(item)} title="Печать"><Printer size={15} /></button>
                         </div>

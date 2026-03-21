@@ -147,6 +147,8 @@ export const analyticsApi = {
 export const waybillsApi = {
   getAll: (params?: { date?: string; status?: 'DRAFT' | 'ISSUED' | 'CLOSED'; search?: string }) =>
     api.get<Waybill[]>('/waybills', { params }),
+  exportCsv: (params?: { date?: string; status?: 'DRAFT' | 'ISSUED' | 'CLOSED'; search?: string }) =>
+    api.get<Blob>('/waybills/export.csv', { params, responseType: 'blob' }),
   getById: (id: number) => api.get<Waybill>(`/waybills/${id}`),
   autoGenerate: (date: string) =>
     api.post<{
@@ -160,6 +162,19 @@ export const waybillsApi = {
     api.patch<Waybill>(`/waybills/${id}`, data),
   markPrinted: (id: number) =>
     api.patch<Waybill>(`/waybills/${id}/printed`),
+  bulkUpdateStatus: (ids: number[], status: 'DRAFT' | 'ISSUED' | 'CLOSED') =>
+    api.patch<{
+      requestedCount: number;
+      updatedCount: number;
+      skippedCount: number;
+      skipped: Array<{ id: number; number: string; reason: string; missing?: string[] }>;
+    }>('/waybills/bulk/status', { ids, status }),
+  bulkMarkPrinted: (ids: number[]) =>
+    api.patch<{
+      requestedCount: number;
+      updatedCount: number;
+      skippedCount: number;
+    }>('/waybills/bulk/printed', { ids }),
 };
 
 // Dashboard

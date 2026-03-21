@@ -6,6 +6,19 @@ import { ensureWaybillForTransfer } from '../utils/waybill.utils';
 type WaybillStatus = 'DRAFT' | 'ISSUED' | 'CLOSED';
 const WAYBILL_STATUSES: WaybillStatus[] = ['DRAFT', 'ISSUED', 'CLOSED'];
 
+type WaybillCandidate = {
+  status: WaybillStatus;
+  driverLicenseNumber: string | null;
+  odometerStart: number | null;
+  odometerEnd: number | null;
+  mechanicName: string | null;
+  medicName: string | null;
+  preTripCheckPassed: boolean | null;
+  postTripCheckPassed: boolean | null;
+  preTripMedicalPassed: boolean | null;
+  postTripMedicalPassed: boolean | null;
+};
+
 function normalizeString(value: unknown): string | null {
   const v = String(value ?? '').trim();
   return v || null;
@@ -17,7 +30,7 @@ function normalizeNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function validateForStatus(data: any, targetStatus: WaybillStatus): string[] {
+function validateForStatus(data: WaybillCandidate, targetStatus: WaybillStatus): string[] {
   const missing: string[] = [];
 
   const requiredForIssued: Array<{ key: string; ok: boolean }> = [
@@ -56,6 +69,14 @@ function validateForStatus(data: any, targetStatus: WaybillStatus): string[] {
   return Array.from(new Set(missing));
 }
 
+function parseIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item > 0);
+  return Array.from(new Set(ids));
+}
+
 function parsePositiveInt(value: unknown): number | null {
   const num = Number(value);
   if (!Number.isInteger(num) || num <= 0) return null;
@@ -69,43 +90,59 @@ function parseDate(value: unknown): Date | null {
   return d;
 }
 
+function buildWaybillWhere(
+  query: { date?: unknown; status?: unknown; search?: unknown },
+  driverId?: number
+): any | null {
+  const { date, status, search } = query;
+  const where: any = {};
+
+  if (date) {
+    const start = parseDate(date);
+    if (!start) return null;
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    where.issueDate = { gte: start, lt: end };
+  }
+
+  if (status && WAYBILL_STATUSES.includes(status as WaybillStatus)) {
+    where.status = status;
+  }
+
+  if (search) {
+    const q = String(search);
+    where.OR = [
+      { number: { contains: q, mode: 'insensitive' } },
+      { driverName: { contains: q, mode: 'insensitive' } },
+      { vehiclePlateNumber: { contains: q, mode: 'insensitive' } },
+      { route: { contains: q, mode: 'insensitive' } },
+    ];
+  }
+
+  if (driverId) {
+    where.transfer = { driverId };
+  }
+
+  return where;
+}
+
+function toCsvCell(value: unknown): string {
+  const raw = String(value ?? '');
+  if (raw.includes('"') || raw.includes(',') || raw.includes('\n')) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+}
+
 export async function getWaybills(req: Request, res: Response): Promise<void> {
   const authReq = req as AuthRequest;
-  const { date, status, search } = req.query;
 
   try {
-    const where: any = {};
-
-    if (date) {
-      const start = parseDate(date);
-      if (!start) {
-        res.status(400).json({ error: 'Некорректная дата' });
-        return;
-      }
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      where.issueDate = { gte: start, lt: end };
-    }
-
-    if (status && WAYBILL_STATUSES.includes(status as WaybillStatus)) {
-      where.status = status;
-    }
-
-    if (search) {
-      const q = String(search);
-      where.OR = [
-        { number: { contains: q, mode: 'insensitive' } },
-        { driverName: { contains: q, mode: 'insensitive' } },
-        { vehiclePlateNumber: { contains: q, mode: 'insensitive' } },
-        { route: { contains: q, mode: 'insensitive' } },
-      ];
-    }
-
-    if (authReq.user?.role === 'DRIVER') {
-      where.transfer = {
-        driverId: authReq.user.driverId,
-      };
+    const where = buildWaybillWhere(req.query, authReq.user?.role === 'DRIVER' ? authReq.user.driverId : undefined);
+    if (!where) {
+      res.status(400).json({ error: 'Некорректная дата' });
+      return;
     }
 
     const rows = await (prisma as any).waybill.findMany({
@@ -130,6 +167,68 @@ export async function getWaybills(req: Request, res: Response): Promise<void> {
     res.json(rows);
   } catch (error) {
     console.error('GetWaybills error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function exportWaybillsCsv(req: Request, res: Response): Promise<void> {
+  const authReq = req as AuthRequest;
+
+  try {
+    const where = buildWaybillWhere(req.query, authReq.user?.role === 'DRIVER' ? authReq.user.driverId : undefined);
+    if (!where) {
+      res.status(400).json({ error: 'Некорректная дата' });
+      return;
+    }
+
+    const rows = await (prisma as any).waybill.findMany({
+      where,
+      orderBy: [{ issueDate: 'desc' }, { id: 'desc' }],
+      take: 5000,
+    });
+
+    const header = [
+      'Номер',
+      'Дата выдачи',
+      'Период с',
+      'Период по',
+      'Статус',
+      'Водитель',
+      'Госномер',
+      'Маршрут',
+      'Удостоверение',
+      'Одометр выезд',
+      'Одометр возврат',
+      'Механик',
+      'Медработник',
+      'Дата печати',
+    ];
+
+    const csvRows = rows.map((item: any) => [
+      item.number,
+      new Date(item.issueDate).toLocaleDateString('ru-RU'),
+      new Date(item.validFrom).toLocaleString('ru-RU'),
+      new Date(item.validTo).toLocaleString('ru-RU'),
+      item.status,
+      item.driverName,
+      item.vehiclePlateNumber,
+      item.route,
+      item.driverLicenseNumber || '',
+      item.odometerStart ?? '',
+      item.odometerEnd ?? '',
+      item.mechanicName || '',
+      item.medicName || '',
+      item.printedAt ? new Date(item.printedAt).toLocaleString('ru-RU') : '',
+    ]);
+
+    const csv = [header, ...csvRows].map((row) => row.map(toCsvCell).join(',')).join('\n');
+
+    const dateTag = String(req.query.date || new Date().toISOString().slice(0, 10));
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="waybills-${dateTag}.csv"`);
+    res.status(200).send('\uFEFF' + csv);
+  } catch (error) {
+    console.error('ExportWaybillsCsv error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 }
@@ -301,6 +400,115 @@ export async function markWaybillPrinted(req: Request, res: Response): Promise<v
     res.json(updated);
   } catch (error) {
     console.error('MarkWaybillPrinted error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function bulkUpdateWaybillStatus(req: Request, res: Response): Promise<void> {
+  const ids = parseIds(req.body?.ids);
+  const status = req.body?.status as WaybillStatus;
+
+  if (!ids.length) {
+    res.status(400).json({ error: 'Нужно передать непустой массив ids' });
+    return;
+  }
+
+  if (!WAYBILL_STATUSES.includes(status)) {
+    res.status(400).json({ error: 'Некорректный целевой статус' });
+    return;
+  }
+
+  try {
+    const rows = await (prisma as any).waybill.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        driverLicenseNumber: true,
+        odometerStart: true,
+        odometerEnd: true,
+        mechanicName: true,
+        medicName: true,
+        preTripCheckPassed: true,
+        postTripCheckPassed: true,
+        preTripMedicalPassed: true,
+        postTripMedicalPassed: true,
+      },
+    });
+
+    const skipped: Array<{ id: number; number: string; reason: string; missing?: string[] }> = [];
+    const validIds: number[] = [];
+
+    for (const row of rows) {
+      if (row.status === status) {
+        skipped.push({ id: row.id, number: row.number, reason: 'Статус уже установлен' });
+        continue;
+      }
+
+      const missing =
+        status === 'ISSUED' || status === 'CLOSED'
+          ? validateForStatus(row as WaybillCandidate, status)
+          : [];
+
+      if (missing.length) {
+        skipped.push({
+          id: row.id,
+          number: row.number,
+          reason: `Недостаточно данных для статуса ${status}`,
+          missing,
+        });
+        continue;
+      }
+
+      validIds.push(row.id);
+    }
+
+    if (validIds.length) {
+      await (prisma as any).waybill.updateMany({
+        where: { id: { in: validIds } },
+        data: { status },
+      });
+    }
+
+    const notFoundIds = ids.filter((id) => !rows.some((row: any) => row.id === id));
+    for (const id of notFoundIds) {
+      skipped.push({ id, number: '-', reason: 'Не найден' });
+    }
+
+    res.json({
+      requestedCount: ids.length,
+      updatedCount: validIds.length,
+      skippedCount: skipped.length,
+      skipped,
+    });
+  } catch (error) {
+    console.error('BulkUpdateWaybillStatus error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function bulkMarkWaybillPrinted(req: Request, res: Response): Promise<void> {
+  const ids = parseIds(req.body?.ids);
+
+  if (!ids.length) {
+    res.status(400).json({ error: 'Нужно передать непустой массив ids' });
+    return;
+  }
+
+  try {
+    const updated = await (prisma as any).waybill.updateMany({
+      where: { id: { in: ids } },
+      data: { printedAt: new Date() },
+    });
+
+    res.json({
+      requestedCount: ids.length,
+      updatedCount: updated.count,
+      skippedCount: Math.max(0, ids.length - updated.count),
+    });
+  } catch (error) {
+    console.error('BulkMarkWaybillPrinted error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 }

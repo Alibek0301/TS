@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth.middleware';
 
+const prismaAny = prisma as any;
+
 function toPercent(part: number, total: number): number {
   if (!total) return 0;
   return Math.round((part / total) * 100);
@@ -32,6 +34,32 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const now = new Date();
+
+    const waybillRiskWhere = {
+      issueDate: { gte: today, lt: tomorrow },
+      status: { in: ['ISSUED', 'CLOSED'] },
+      OR: [
+        { driverLicenseNumber: null },
+        { odometerStart: null },
+        { mechanicName: null },
+        { medicName: null },
+        { preTripCheckPassed: { not: true } },
+        { preTripMedicalPassed: { not: true } },
+        {
+          AND: [
+            { status: 'CLOSED' },
+            {
+              OR: [
+                { odometerEnd: null },
+                { postTripCheckPassed: { not: true } },
+                { postTripMedicalPassed: { not: true } },
+              ],
+            },
+          ],
+        },
+      ],
+    };
 
     if (authReq.user?.role === 'DRIVER') {
       if (!authReq.user.driverId) {
@@ -46,6 +74,9 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
         cancelledToday,
         upcomingTransfers,
         todayTransfers,
+        waybillsTodayCount,
+        waybillsIssuedCount,
+        waybillsClosedCount,
       ] = await Promise.all([
         prisma.transfer.count({
           where: {
@@ -98,6 +129,26 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
             status: true,
           },
         }),
+        prismaAny.waybill.count({
+          where: {
+            issueDate: { gte: today, lt: tomorrow },
+            transfer: { driverId: authReq.user.driverId },
+          },
+        }),
+        prismaAny.waybill.count({
+          where: {
+            issueDate: { gte: today, lt: tomorrow },
+            status: 'ISSUED',
+            transfer: { driverId: authReq.user.driverId },
+          },
+        }),
+        prismaAny.waybill.count({
+          where: {
+            issueDate: { gte: today, lt: tomorrow },
+            status: 'CLOSED',
+            transfer: { driverId: authReq.user.driverId },
+          },
+        }),
       ]);
 
       const overduePlannedCount = todayTransfers.filter(
@@ -124,6 +175,18 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
           avgDurationMinutes: calcAverageDurationMinutes(todayTransfers),
           overduePlannedCount,
         },
+        waybillKpi: {
+          totalToday: waybillsTodayCount,
+          draftsToday: Math.max(0, waybillsTodayCount - waybillsIssuedCount - waybillsClosedCount),
+          issuedToday: waybillsIssuedCount,
+          closedToday: waybillsClosedCount,
+          missingRequiredToday: 0,
+        },
+        recentWaybills: [],
+        criticalAlerts: {
+          overdueTransfers: [],
+          problematicWaybills: [],
+        },
       });
       return;
     }
@@ -138,6 +201,13 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
       completedToday,
       cancelledToday,
       plannedToday,
+      totalWaybillsToday,
+      draftWaybillsToday,
+      issuedWaybillsToday,
+      closedWaybillsToday,
+      recentWaybills,
+      overdueTransfers,
+      problematicWaybills,
     ] = await Promise.all([
       prisma.transfer.count({
         where: {
@@ -193,10 +263,81 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
           status: 'PLANNED',
         },
       }),
+      prismaAny.waybill.count({
+        where: {
+          issueDate: { gte: today, lt: tomorrow },
+        },
+      }),
+      prismaAny.waybill.count({
+        where: {
+          issueDate: { gte: today, lt: tomorrow },
+          status: 'DRAFT',
+        },
+      }),
+      prismaAny.waybill.count({
+        where: {
+          issueDate: { gte: today, lt: tomorrow },
+          status: 'ISSUED',
+        },
+      }),
+      prismaAny.waybill.count({
+        where: {
+          issueDate: { gte: today, lt: tomorrow },
+          status: 'CLOSED',
+        },
+      }),
+      prismaAny.waybill.findMany({
+        where: {
+          issueDate: { gte: today, lt: tomorrow },
+        },
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          driverName: true,
+          vehiclePlateNumber: true,
+          route: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 6,
+      }),
+      prisma.transfer.findMany({
+        where: {
+          date: { gte: today, lt: tomorrow },
+          status: 'PLANNED',
+          endTime: { lt: now },
+        },
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          origin: true,
+          destination: true,
+          driver: { select: { fullName: true } },
+          car: { select: { plateNumber: true } },
+        },
+        orderBy: { endTime: 'asc' },
+        take: 6,
+      }),
+      prismaAny.waybill.findMany({
+        where: waybillRiskWhere,
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          driverName: true,
+          vehiclePlateNumber: true,
+          route: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 6,
+      }),
     ]);
 
     const overduePlannedCount = todayTransfers.filter(
-      (item) => item.status === 'PLANNED' && item.endTime < new Date()
+      (item) => item.status === 'PLANNED' && item.endTime < now
     ).length;
 
     const topDriverMap = new Map<number, { id: number; fullName: string; total: number; completed: number; cancelled: number }>();
@@ -249,6 +390,8 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
 
     const hourlyLoad = Array.from(hourlyMap.values()).sort((a, b) => a.hour.localeCompare(b.hour));
 
+    const missingRequiredToday = await prismaAny.waybill.count({ where: waybillRiskWhere });
+
     res.json({
       todayTransfersCount,
       freeCarsCount,
@@ -268,6 +411,18 @@ export async function getDashboard(req: Request, res: Response): Promise<void> {
         cancellationRate: toPercent(cancelledToday, todayTransfers.length),
         avgDurationMinutes: calcAverageDurationMinutes(todayTransfers),
         overduePlannedCount,
+      },
+      waybillKpi: {
+        totalToday: totalWaybillsToday,
+        draftsToday: draftWaybillsToday,
+        issuedToday: issuedWaybillsToday,
+        closedToday: closedWaybillsToday,
+        missingRequiredToday,
+      },
+      recentWaybills,
+      criticalAlerts: {
+        overdueTransfers,
+        problematicWaybills,
       },
     });
   } catch (error) {

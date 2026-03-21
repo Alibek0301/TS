@@ -282,4 +282,40 @@ export interface DashboardData {
     completed: number;
     cancelled: number;
   }>;
+  waybillKpi?: {
+    totalToday: number;
+    draftsToday: number;
+    issuedToday: number;
+    closedToday: number;
+    missingRequiredToday: number;
+  };
+  recentWaybills?: Array<{
+    id: number;
+    number: string;
+    status: 'DRAFT' | 'ISSUED' | 'CLOSED';
+    driverName: string;
+    vehiclePlateNumber: string;
+    route: string;
+    updatedAt: string;
+  }>;
+  criticalAlerts?: {
+    overdueTransfers: Array<{
+      id: number;
+      startTime: string;
+      endTime: string;
+      origin: string;
+      destination: string;
+      driver?: { fullName: string } | null;
+      car?: { plateNumber: string } | null;
+    }>;
+    problematicWaybills: Array<{
+      id: number;
+      number: string;
+      status: 'DRAFT' | 'ISSUED' | 'CLOSED';
+      driverName: string;
+      vehiclePlateNumber: string;
+      route: string;
+      updatedAt: string;
+    }>;
+  };
 }

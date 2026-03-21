@@ -6,11 +6,13 @@ import { useAuth } from '../context/AuthContext';
 import { formatTime } from '../utils/helpers';
 import { getTransferStatusClass, getTransferStatusLabel } from '../utils/helpers';
 import {
+  AlertTriangle,
   CalendarCheck,
   Car,
   Users,
   Clock,
   MapPin,
+  FileText,
 } from 'lucide-react';
 
 export default function DashboardPage() {
@@ -106,6 +108,124 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {!isDriver && (
+          <div className="stats-grid" style={{ marginTop: -8 }}>
+            <div className="stat-card">
+              <div className="stat-icon blue"><FileText size={24} /></div>
+              <div>
+                <div className="stat-value">{data?.waybillKpi?.totalToday ?? 0}</div>
+                <div className="stat-label">Путевых листов сегодня</div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon yellow"><FileText size={24} /></div>
+              <div>
+                <div className="stat-value">{data?.waybillKpi?.draftsToday ?? 0}</div>
+                <div className="stat-label">Черновики ПЛ</div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon green"><FileText size={24} /></div>
+              <div>
+                <div className="stat-value">{data?.waybillKpi?.issuedToday ?? 0}</div>
+                <div className="stat-label">Выдано ПЛ</div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon red"><FileText size={24} /></div>
+              <div>
+                <div className="stat-value">{data?.waybillKpi?.missingRequiredToday ?? 0}</div>
+                <div className="stat-label">ПЛ с риском реквизитов</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!isDriver && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-header">
+              <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <AlertTriangle size={18} color="var(--danger)" />
+                Критические риски на сегодня
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Link to="/transfers" className="btn btn-secondary btn-sm">К трансферам</Link>
+                <Link to="/waybills" className="btn btn-secondary btn-sm">К путевым листам</Link>
+              </div>
+            </div>
+
+            <div className="page-grid" style={{ marginTop: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                  Просроченные плановые трансферы: {data?.criticalAlerts?.overdueTransfers?.length ?? 0}
+                </div>
+                {!data?.criticalAlerts?.overdueTransfers?.length ? (
+                  <div className="empty-state" style={{ minHeight: 110 }}><Clock size={28} /><p>Нет просроченных</p></div>
+                ) : (
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Маршрут</th>
+                          <th>Водитель</th>
+                          <th>План до</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.criticalAlerts.overdueTransfers.map((item) => (
+                          <tr key={item.id}>
+                            <td>{item.id}</td>
+                            <td>{item.origin} → {item.destination}</td>
+                            <td>{item.driver?.fullName || '-'}</td>
+                            <td>{formatTime(item.endTime)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                  Проблемные путевые листы: {data?.criticalAlerts?.problematicWaybills?.length ?? 0}
+                </div>
+                {!data?.criticalAlerts?.problematicWaybills?.length ? (
+                  <div className="empty-state" style={{ minHeight: 110 }}><FileText size={28} /><p>Нет критичных ПЛ</p></div>
+                ) : (
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Номер</th>
+                          <th>Водитель</th>
+                          <th>Госномер</th>
+                          <th>Статус</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.criticalAlerts.problematicWaybills.map((item) => (
+                          <tr key={item.id}>
+                            <td>{item.number}</td>
+                            <td>{item.driverName}</td>
+                            <td>{item.vehiclePlateNumber}</td>
+                            <td>
+                              <span className={`badge ${item.status === 'DRAFT' ? 'badge-warning' : item.status === 'ISSUED' ? 'badge-primary' : 'badge-success'}`}>
+                                {item.status === 'DRAFT' ? 'Черновик' : item.status === 'ISSUED' ? 'Выдан' : 'Закрыт'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Upcoming transfers */}
         <div className="card">
@@ -260,6 +380,49 @@ export default function DashboardPage() {
                         <td>{item.total}</td>
                         <td>{item.completed}</td>
                         <td>{item.cancelled}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isDriver && (
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card-header">
+              <div className="card-title">Последние путевые листы</div>
+              <Link to="/waybills" className="btn btn-secondary btn-sm">Открыть раздел</Link>
+            </div>
+            {!data?.recentWaybills?.length ? (
+              <div className="empty-state"><FileText size={32} /><p>Нет данных</p></div>
+            ) : (
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Номер</th>
+                      <th>Водитель</th>
+                      <th>Госномер</th>
+                      <th>Маршрут</th>
+                      <th>Статус</th>
+                      <th>Обновлен</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.recentWaybills.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.number}</td>
+                        <td>{item.driverName}</td>
+                        <td><span className="chip">{item.vehiclePlateNumber}</span></td>
+                        <td>{item.route}</td>
+                        <td>
+                          <span className={`badge ${item.status === 'DRAFT' ? 'badge-warning' : item.status === 'ISSUED' ? 'badge-primary' : 'badge-success'}`}>
+                            {item.status === 'DRAFT' ? 'Черновик' : item.status === 'ISSUED' ? 'Выдан' : 'Закрыт'}
+                          </span>
+                        </td>
+                        <td>{new Date(item.updatedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</td>
                       </tr>
                     ))}
                   </tbody>
