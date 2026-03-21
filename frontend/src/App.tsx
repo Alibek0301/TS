@@ -12,6 +12,7 @@ import MyShiftsPage from './pages/MyShiftsPage';
 import OpsPage from './pages/OpsPage';
 import CarMaintenanceLogPage from './pages/CarMaintenanceLogPage';
 import EntityAnalyticsPage from './pages/EntityAnalyticsPage';
+import WaybillsPage from './pages/WaybillsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -99,6 +100,14 @@ function AppRoutes() {
           element={
             <AdminOrDispatcherRoute>
               <EntityAnalyticsPage />
+            </AdminOrDispatcherRoute>
+          }
+        />
+        <Route
+          path="waybills"
+          element={
+            <AdminOrDispatcherRoute>
+              <WaybillsPage />
             </AdminOrDispatcherRoute>
           }
         />

@@ -13,6 +13,8 @@ import type {
   DriverAnalytics,
   CarAnalytics,
   ClientAnalytics,
+  TransferFilterPreset,
+  Waybill,
 } from '../types';
 
 // Auth
@@ -88,11 +90,51 @@ export const transfersApi = {
   }) =>
     api.get<TransferHistory[]>('/transfers/history/recent', { params }),
   create: (data: Partial<Transfer>) => api.post<Transfer>('/transfers', data),
+  createRecurring: (data: {
+    date: string;
+    startTime: string;
+    endTime: string;
+    origin: string;
+    destination: string;
+    clientName?: string;
+    clientPhone?: string;
+    driverId: number;
+    carId: number;
+    status: 'PLANNED' | 'COMPLETED' | 'CANCELLED';
+    comment?: string;
+    recurrence: {
+      pattern: 'DAILY' | 'WEEKLY';
+      interval?: number;
+      count?: number;
+      untilDate?: string;
+      weekdays?: number[];
+    };
+  }) => api.post<{
+    totalRequested: number;
+    createdCount: number;
+    skippedCount: number;
+    createdTransfers: Array<{ id: number; date: string; startTime: string; endTime: string }>;
+    skipped: Array<{ date: string; reason: string }>;
+  }>('/transfers/recurring', data),
   update: (id: number, data: Partial<Transfer>) =>
     api.put<Transfer>(`/transfers/${id}`, data),
   updateMyStatus: (id: number, status: 'COMPLETED' | 'CANCELLED') =>
     api.patch<Transfer>(`/transfers/${id}/my-status`, { status }),
   delete: (id: number) => api.delete(`/transfers/${id}`),
+  getPresets: (params?: { sortBy?: 'updatedAt' | 'name'; sortDir?: 'asc' | 'desc' }) =>
+    api.get<TransferFilterPreset[]>('/transfers/presets', { params }),
+  savePreset: (data: {
+    name: string;
+    state: unknown;
+    isDefault?: boolean;
+  }) => api.post<TransferFilterPreset>('/transfers/presets', data),
+  renamePreset: (id: number, name: string) =>
+    api.patch<TransferFilterPreset>(`/transfers/presets/${id}/rename`, { name }),
+  setDefaultPreset: (id: number) =>
+    api.patch<TransferFilterPreset>(`/transfers/presets/${id}/default`),
+  clearDefaultPreset: () =>
+    api.patch<{ message: string }>('/transfers/presets/default/clear'),
+  deletePreset: (id: number) => api.delete(`/transfers/presets/${id}`),
 };
 
 export const analyticsApi = {
@@ -100,6 +142,24 @@ export const analyticsApi = {
   getDriver: (id: number) => api.get<DriverAnalytics>(`/analytics/drivers/${id}`),
   getCar: (id: number) => api.get<CarAnalytics>(`/analytics/cars/${id}`),
   getClient: (name: string) => api.get<ClientAnalytics>(`/analytics/clients/${encodeURIComponent(name)}`),
+};
+
+export const waybillsApi = {
+  getAll: (params?: { date?: string; status?: 'DRAFT' | 'ISSUED' | 'CLOSED'; search?: string }) =>
+    api.get<Waybill[]>('/waybills', { params }),
+  getById: (id: number) => api.get<Waybill>(`/waybills/${id}`),
+  autoGenerate: (date: string) =>
+    api.post<{
+      date: string;
+      totalTransfers: number;
+      createdCount: number;
+      skippedCount: number;
+      skipped: Array<{ transferId: number; reason: string }>;
+    }>('/waybills/auto-generate', { date }),
+  update: (id: number, data: Partial<Waybill>) =>
+    api.patch<Waybill>(`/waybills/${id}`, data),
+  markPrinted: (id: number) =>
+    api.patch<Waybill>(`/waybills/${id}/printed`),
 };
 
 // Dashboard

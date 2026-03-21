@@ -101,6 +101,63 @@ export interface Transfer {
   history?: TransferHistory[];
 }
 
+export interface TransferFilterPreset {
+  id: number;
+  userId: number;
+  name: string;
+  state: unknown;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Waybill {
+  id: number;
+  number: string;
+  seriesBranchCode: string;
+  seriesTypeCode: string;
+  seriesMonth: string;
+  transferId: number;
+  status: 'DRAFT' | 'ISSUED' | 'CLOSED';
+  issueDate: string;
+  validFrom: string;
+  validTo: string;
+  organizationName: string;
+  organizationBin?: string | null;
+  organizationAddress?: string | null;
+  dispatchAddress?: string | null;
+  driverName: string;
+  driverLicenseNumber?: string | null;
+  vehicleBrand: string;
+  vehicleModel: string;
+  vehiclePlateNumber: string;
+  route: string;
+  odometerStart?: number | null;
+  odometerEnd?: number | null;
+  fuelType?: string | null;
+  fuelIssuedLiters?: number | null;
+  fuelRemainingLiters?: number | null;
+  mechanicName?: string | null;
+  medicName?: string | null;
+  preTripCheckPassed?: boolean | null;
+  postTripCheckPassed?: boolean | null;
+  preTripMedicalPassed?: boolean | null;
+  postTripMedicalPassed?: boolean | null;
+  notes?: string | null;
+  printedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  transfer?: {
+    id: number;
+    date: string;
+    startTime: string;
+    endTime: string;
+    origin: string;
+    destination: string;
+    status: 'PLANNED' | 'COMPLETED' | 'CANCELLED';
+  };
+}
+
 export interface ClientOption {
   name: string;
   orders: number;

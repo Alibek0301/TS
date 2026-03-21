@@ -41,6 +41,14 @@ interface PersistedTransfersState {
   quickPreset: QuickPreset;
 }
 
+interface SavedTransferPreset {
+  id: number;
+  name: string;
+  state: PersistedTransfersState;
+  isDefault: boolean;
+  createdAt: string;
+}
+
 const STORAGE_KEY = 'ts_transfers_page_state_v1';
 
 const DEFAULT_FILTERS: TransferFilters = {
@@ -110,6 +118,9 @@ export default function TransfersPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(persistedState.pageSize || 10);
   const [quickPreset, setQuickPreset] = useState<QuickPreset>(persistedState.quickPreset || 'NONE');
+  const [savedPresets, setSavedPresets] = useState<SavedTransferPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editTransfer, setEditTransfer] = useState<Transfer | null>(null);
   const [defaultModalDate, setDefaultModalDate] = useState<string>('');
@@ -311,6 +322,207 @@ export default function TransfersPage() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
   }, [filters, search, sortKey, sortDir, pageSize, viewMode, quickPreset]);
 
+  const refreshPresets = async () => {
+    try {
+      const res = await transfersApi.getPresets({ sortBy: 'updatedAt', sortDir: 'desc' });
+      const normalized = (res.data || []).map((item: any) => ({
+        id: Number(item.id),
+        name: String(item.name || ''),
+        state: (item.state || {}) as PersistedTransfersState,
+        isDefault: Boolean(item.isDefault),
+        createdAt: String(item.createdAt || new Date().toISOString()),
+      })).filter((item: SavedTransferPreset) => item.id && item.name);
+
+      setSavedPresets(normalized);
+      return normalized;
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось загрузить сохраненные фильтры';
+      showToast(message, 'error');
+      return [] as SavedTransferPreset[];
+    }
+  };
+
+  useEffect(() => {
+    const loadPresets = async () => {
+      const normalized = await refreshPresets();
+      const defaultPreset = normalized.find((item: SavedTransferPreset) => item.isDefault);
+      if (defaultPreset) {
+        applySavedPreset(defaultPreset, false);
+      }
+    };
+
+    loadPresets();
+  }, []);
+
+  const applySavedPreset = (preset: SavedTransferPreset, notify = true) => {
+    setFilters({ ...DEFAULT_FILTERS, ...(preset.state?.filters || {}) });
+    setSearch(preset.state.search || '');
+    setSortKey(preset.state.sortKey || 'date');
+    setSortDir(preset.state.sortDir || 'desc');
+    setPageSize(preset.state.pageSize || 10);
+    setViewMode(preset.state.viewMode === 'calendar' ? 'calendar' : 'table');
+    setQuickPreset(preset.state.quickPreset || 'NONE');
+    setPage(1);
+    setSelectedPresetId(String(preset.id));
+    if (notify) {
+      showToast(`Применен фильтр: ${preset.name}`, 'success');
+    }
+  };
+
+  const saveCurrentPreset = async () => {
+    const name = presetName.trim();
+    if (!name) {
+      showToast('Введите название фильтра', 'error');
+      return;
+    }
+
+    const state: PersistedTransfersState = {
+      filters,
+      search,
+      sortKey,
+      sortDir,
+      pageSize,
+      viewMode,
+      quickPreset,
+    };
+
+    try {
+      const res = await transfersApi.savePreset({
+        name,
+        state,
+      });
+
+      const saved = res.data as any;
+      const mapped: SavedTransferPreset = {
+        id: Number(saved.id),
+        name: String(saved.name || name),
+        state: (saved.state || state) as PersistedTransfersState,
+        isDefault: Boolean(saved.isDefault),
+        createdAt: String(saved.createdAt || new Date().toISOString()),
+      };
+
+      setSavedPresets((prev) => {
+        const exists = prev.some((item) => item.id === mapped.id);
+        if (exists) {
+          return prev.map((item) => (item.id === mapped.id ? mapped : item));
+        }
+        return [mapped, ...prev];
+      });
+
+      setSelectedPresetId(String(mapped.id));
+      showToast(`Фильтр сохранен: ${mapped.name}`, 'success');
+      setPresetName('');
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось сохранить фильтр';
+      showToast(message, 'error');
+    }
+  };
+
+  const deleteSavedPreset = async () => {
+    if (!selectedPresetId) {
+      showToast('Выберите сохраненный фильтр', 'error');
+      return;
+    }
+
+    const selectedIdNum = Number(selectedPresetId);
+    if (!selectedIdNum) {
+      showToast('Некорректный набор фильтра', 'error');
+      return;
+    }
+
+    const selected = savedPresets.find((item) => item.id === selectedIdNum);
+    if (!selected) return;
+    if (!confirm(`Удалить фильтр "${selected.name}"?`)) return;
+
+    try {
+      await transfersApi.deletePreset(selected.id);
+      setSavedPresets((prev) => prev.filter((item) => item.id !== selected.id));
+      setSelectedPresetId('');
+      showToast(`Фильтр удален: ${selected.name}`, 'success');
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось удалить фильтр';
+      showToast(message, 'error');
+    }
+  };
+
+  const makePresetDefault = async () => {
+    if (!selectedPresetId) {
+      showToast('Выберите сохраненный фильтр', 'error');
+      return;
+    }
+
+    const selected = savedPresets.find((item) => item.id === Number(selectedPresetId));
+    if (!selected) return;
+
+    try {
+      const res = await transfersApi.setDefaultPreset(selected.id);
+      const updatedId = Number((res.data as any).id || selected.id);
+      setSavedPresets((prev) => prev.map((item) => ({
+        ...item,
+        isDefault: item.id === updatedId,
+      })));
+      showToast(`Набор по умолчанию: ${selected.name}`, 'success');
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось установить набор по умолчанию';
+      showToast(message, 'error');
+    }
+  };
+
+  const clearPresetDefault = async () => {
+    const hasDefault = savedPresets.some((item) => item.isDefault);
+    if (!hasDefault) {
+      showToast('Нет набора по умолчанию', 'error');
+      return;
+    }
+
+    try {
+      await transfersApi.clearDefaultPreset();
+      setSavedPresets((prev) => prev.map((item) => ({ ...item, isDefault: false })));
+      showToast('Набор по умолчанию снят', 'success');
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось снять набор по умолчанию';
+      showToast(message, 'error');
+    }
+  };
+
+  const renameSavedPreset = async () => {
+    if (!selectedPresetId) {
+      showToast('Выберите сохраненный фильтр', 'error');
+      return;
+    }
+
+    const selected = savedPresets.find((item) => item.id === Number(selectedPresetId));
+    if (!selected) return;
+
+    const nextName = presetName.trim();
+    if (!nextName) {
+      showToast('Введите новое название', 'error');
+      return;
+    }
+
+    if (nextName === selected.name) {
+      showToast('Название не изменилось', 'error');
+      return;
+    }
+
+    try {
+      const res = await transfersApi.renamePreset(selected.id, nextName);
+      const renamed = res.data as any;
+
+      setSavedPresets((prev) => prev.map((item) => (
+        item.id === selected.id
+          ? { ...item, name: String(renamed.name || nextName) }
+          : item
+      )));
+      showToast(`Набор переименован: ${nextName}`, 'success');
+      setPresetName('');
+      await refreshPresets();
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Не удалось переименовать набор';
+      showToast(message, 'error');
+    }
+  };
+
   const setPresetToday = () => {
     const today = toLocalDateString(new Date());
     setFilters((prev) => ({ ...prev, date: today, startDate: '', endDate: '' }));
@@ -404,6 +616,47 @@ export default function TransfersPage() {
                 Сбросить
               </button>
             )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ minWidth: 220, marginBottom: 0 }}>
+              <label>Сохраненные фильтры</label>
+              <select
+                value={selectedPresetId}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSelectedPresetId(value);
+                  const selected = savedPresets.find((item) => item.id === Number(value));
+                  if (selected) applySavedPreset(selected);
+                }}
+              >
+                <option value="">Выберите набор</option>
+                {savedPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.name}{preset.isDefault ? ' (по умолчанию)' : ''}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group" style={{ minWidth: 220, marginBottom: 0 }}>
+              <label>Название набора</label>
+              <input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="Например: Только просроченные"
+                maxLength={50}
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0, alignSelf: 'end' }}>
+              <label style={{ visibility: 'hidden' }}>Действия</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={saveCurrentPreset}>Сохранить набор</button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={renameSavedPreset} disabled={!selectedPresetId || !presetName.trim()}>Переименовать</button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={makePresetDefault} disabled={!selectedPresetId}>Сделать по умолчанию</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearPresetDefault}>Снять по умолчанию</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={deleteSavedPreset} disabled={!selectedPresetId}>Удалить набор</button>
+              </div>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>

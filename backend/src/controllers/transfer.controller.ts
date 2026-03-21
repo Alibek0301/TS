@@ -2,10 +2,33 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { checkScheduleConflicts } from '../utils/conflict.utils';
 import { TransferStatus } from '@prisma/client';
+import { ensureWaybillForTransfer } from '../utils/waybill.utils';
 
 interface AuthRequest extends Request {
   user?: { id: number; role: string; driverId?: number };
 }
+
+interface PresetStatePayload {
+  filters: Record<string, unknown>;
+  search: string;
+  sortKey: string;
+  sortDir: 'asc' | 'desc';
+  pageSize: number;
+  viewMode: 'table' | 'calendar';
+  quickPreset: string;
+}
+
+type RecurrencePattern = 'DAILY' | 'WEEKLY';
+
+interface RecurrencePayload {
+  pattern: RecurrencePattern;
+  interval?: number;
+  count?: number;
+  untilDate?: string;
+  weekdays?: number[];
+}
+
+const MAX_PRESETS_PER_USER = 30;
 
 function parsePositiveInt(value: unknown): number | null {
   const num = Number(value);
@@ -17,6 +40,91 @@ function parseValidDate(value: unknown): Date | null {
   const parsed = new Date(String(value));
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed;
+}
+
+function combineDateAndTime(date: Date, timeSource: Date): Date {
+  const dt = new Date(date);
+  dt.setHours(
+    timeSource.getHours(),
+    timeSource.getMinutes(),
+    timeSource.getSeconds(),
+    timeSource.getMilliseconds()
+  );
+  return dt;
+}
+
+function getOccurrenceDates(baseDate: Date, recurrence: RecurrencePayload): Date[] {
+  const interval = Math.max(1, Number(recurrence.interval) || 1);
+  const maxCount = Math.min(Math.max(Number(recurrence.count) || 0, 0), 100);
+  const until = recurrence.untilDate ? parseValidDate(recurrence.untilDate) : null;
+
+  const result: Date[] = [];
+
+  if (!maxCount && !until) {
+    return [];
+  }
+
+  const shouldContinue = (currentDate: Date): boolean => {
+    if (result.length >= 100) return false;
+    if (maxCount && result.length >= maxCount) return false;
+    if (until) {
+      const current = new Date(currentDate);
+      current.setHours(0, 0, 0, 0);
+      const untilLocal = new Date(until);
+      untilLocal.setHours(0, 0, 0, 0);
+      if (current > untilLocal) return false;
+    }
+    return true;
+  };
+
+  if (recurrence.pattern === 'DAILY') {
+    const current = new Date(baseDate);
+    while (shouldContinue(current)) {
+      result.push(new Date(current));
+      current.setDate(current.getDate() + interval);
+    }
+    return result;
+  }
+
+  const weekdays = Array.isArray(recurrence.weekdays) && recurrence.weekdays.length
+    ? Array.from(new Set(recurrence.weekdays.map((d) => Number(d)).filter((d) => d >= 0 && d <= 6))).sort((a, b) => a - b)
+    : [baseDate.getDay()];
+
+  const startWeek = new Date(baseDate);
+  startWeek.setHours(0, 0, 0, 0);
+  startWeek.setDate(startWeek.getDate() - startWeek.getDay());
+
+  let weekOffset = 0;
+  while (result.length < 100) {
+    const weekStart = new Date(startWeek);
+    weekStart.setDate(weekStart.getDate() + weekOffset * 7);
+
+    for (const weekday of weekdays) {
+      const candidate = new Date(weekStart);
+      candidate.setDate(candidate.getDate() + weekday);
+      if (candidate < baseDate) continue;
+
+      if (!shouldContinue(candidate)) {
+        return result;
+      }
+
+      result.push(candidate);
+      if (!shouldContinue(candidate)) {
+        return result;
+      }
+    }
+
+    weekOffset += interval;
+    if (until) {
+      const nextWeekStart = new Date(startWeek);
+      nextWeekStart.setDate(nextWeekStart.getDate() + weekOffset * 7);
+      if (nextWeekStart > until && !maxCount) {
+        break;
+      }
+    }
+  }
+
+  return result;
 }
 
 export async function getTransfers(req: AuthRequest, res: Response): Promise<void> {
@@ -269,9 +377,14 @@ export async function createTransfer(req: AuthRequest, res: Response): Promise<v
         comment,
       },
       include: {
-        driver: true,
-        car: true,
+        driver: { select: { fullName: true } },
+        car: { select: { brand: true, model: true, plateNumber: true } },
       },
+    });
+
+    await ensureWaybillForTransfer({
+      transfer,
+      createdById: req.user?.id,
     });
 
     // Log history
@@ -289,6 +402,158 @@ export async function createTransfer(req: AuthRequest, res: Response): Promise<v
     res.status(201).json(transfer);
   } catch (error) {
     console.error('CreateTransfer error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function createRecurringTransfers(req: AuthRequest, res: Response): Promise<void> {
+  const {
+    date,
+    startTime,
+    endTime,
+    origin,
+    destination,
+    clientName,
+    clientPhone,
+    driverId,
+    carId,
+    status,
+    comment,
+    recurrence,
+  } = req.body as {
+    date?: string;
+    startTime?: string;
+    endTime?: string;
+    origin?: string;
+    destination?: string;
+    clientName?: string;
+    clientPhone?: string;
+    driverId?: number;
+    carId?: number;
+    status?: TransferStatus;
+    comment?: string;
+    recurrence?: RecurrencePayload;
+  };
+
+  if (!date || !startTime || !endTime || !origin || !destination || !driverId || !carId) {
+    res.status(400).json({ error: 'Заполните все обязательные поля' });
+    return;
+  }
+
+  if (!recurrence || (recurrence.pattern !== 'DAILY' && recurrence.pattern !== 'WEEKLY')) {
+    res.status(400).json({ error: 'Некорректные настройки повторения' });
+    return;
+  }
+
+  const baseDate = parseValidDate(date);
+  const templateStart = parseValidDate(startTime);
+  const templateEnd = parseValidDate(endTime);
+  const parsedDriverId = parsePositiveInt(driverId);
+  const parsedCarId = parsePositiveInt(carId);
+
+  if (!baseDate || !templateStart || !templateEnd) {
+    res.status(400).json({ error: 'Некорректные значения даты/времени' });
+    return;
+  }
+
+  if (!parsedDriverId || !parsedCarId) {
+    res.status(400).json({ error: 'Некорректный driverId или carId' });
+    return;
+  }
+
+  const durationMs = templateEnd.getTime() - templateStart.getTime();
+  if (durationMs <= 0) {
+    res.status(400).json({ error: 'Время окончания должно быть позже времени начала' });
+    return;
+  }
+
+  if (durationMs > 24 * 60 * 60 * 1000) {
+    res.status(400).json({ error: 'Длительность трансфера не должна превышать 24 часа' });
+    return;
+  }
+
+  const occurrences = getOccurrenceDates(baseDate, recurrence);
+  if (!occurrences.length) {
+    res.status(400).json({ error: 'Не удалось сгенерировать даты повторений. Укажите количество или дату окончания.' });
+    return;
+  }
+
+  try {
+    const createdTransfers: Array<{ id: number; date: string; startTime: string; endTime: string }> = [];
+    const skipped: Array<{ date: string; reason: string }> = [];
+
+    for (const occurrenceDate of occurrences) {
+      const start = combineDateAndTime(occurrenceDate, templateStart);
+      const end = new Date(start.getTime() + durationMs);
+
+      const conflict = await checkScheduleConflicts({
+        startTime: start,
+        endTime: end,
+        driverId: parsedDriverId,
+        carId: parsedCarId,
+      });
+
+      if (conflict.hasConflict) {
+        skipped.push({
+          date: occurrenceDate.toISOString(),
+          reason: conflict.message || 'Конфликт расписания',
+        });
+        continue;
+      }
+
+      const transfer = await prisma.transfer.create({
+        data: {
+          date: occurrenceDate,
+          startTime: start,
+          endTime: end,
+          origin: String(origin).trim(),
+          destination: String(destination).trim(),
+          clientName: clientName ? String(clientName).trim() : null,
+          clientPhone: clientPhone ? String(clientPhone).trim() : null,
+          driverId: parsedDriverId,
+          carId: parsedCarId,
+          status: status || TransferStatus.PLANNED,
+          comment: comment ? String(comment).trim() : null,
+        },
+        include: {
+          driver: { select: { fullName: true } },
+          car: { select: { brand: true, model: true, plateNumber: true } },
+        },
+      });
+
+      await ensureWaybillForTransfer({
+        transfer,
+        createdById: req.user?.id,
+      });
+
+      if (req.user) {
+        await prisma.transferHistory.create({
+          data: {
+            transferId: transfer.id,
+            userId: req.user.id,
+            action: 'CREATE_RECURRING',
+            description: `Регулярный трансфер создан: ${origin} → ${destination}`,
+          },
+        });
+      }
+
+      createdTransfers.push({
+        id: transfer.id,
+        date: transfer.date.toISOString(),
+        startTime: transfer.startTime.toISOString(),
+        endTime: transfer.endTime.toISOString(),
+      });
+    }
+
+    res.status(201).json({
+      totalRequested: occurrences.length,
+      createdCount: createdTransfers.length,
+      skippedCount: skipped.length,
+      createdTransfers,
+      skipped,
+    });
+  } catch (error) {
+    console.error('CreateRecurringTransfers error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 }
@@ -566,6 +831,274 @@ export async function getRecentTransferHistory(req: AuthRequest, res: Response):
     res.json(history);
   } catch (error) {
     console.error('GetRecentTransferHistory error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function getTransferFilterPresets(req: AuthRequest, res: Response): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: 'Требуется авторизация' });
+    return;
+  }
+
+  try {
+    const sortBy = req.query.sortBy === 'name' ? 'name' : 'updatedAt';
+    const sortDir = req.query.sortDir === 'asc' ? 'asc' : 'desc';
+
+    const orderBy = sortBy === 'name'
+      ? [{ isDefault: 'desc' as const }, { name: sortDir as 'asc' | 'desc' }]
+      : [{ isDefault: 'desc' as const }, { updatedAt: sortDir as 'asc' | 'desc' }];
+
+    const presets = await prisma.transferFilterPreset.findMany({
+      where: { userId: req.user.id },
+      orderBy,
+    });
+
+    res.json(presets);
+  } catch (error) {
+    console.error('GetTransferFilterPresets error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function saveTransferFilterPreset(req: AuthRequest, res: Response): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: 'Требуется авторизация' });
+    return;
+  }
+
+  const { name, state, isDefault } = req.body as {
+    name?: string;
+    state?: PresetStatePayload;
+    isDefault?: boolean;
+  };
+
+  const normalizedName = String(name || '').trim();
+  if (!normalizedName) {
+    res.status(400).json({ error: 'Название набора обязательно' });
+    return;
+  }
+
+  if (normalizedName.length > 50) {
+    res.status(400).json({ error: 'Название набора должно быть не длиннее 50 символов' });
+    return;
+  }
+
+  if (!state || typeof state !== 'object') {
+    res.status(400).json({ error: 'Некорректное состояние фильтра' });
+    return;
+  }
+
+  try {
+    const existingByName = await prisma.transferFilterPreset.findUnique({
+      where: {
+        userId_name: {
+          userId: req.user.id,
+          name: normalizedName,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!existingByName) {
+      const presetCount = await prisma.transferFilterPreset.count({
+        where: { userId: req.user.id },
+      });
+
+      if (presetCount >= MAX_PRESETS_PER_USER) {
+        res.status(400).json({ error: `Достигнут лимит наборов (${MAX_PRESETS_PER_USER})` });
+        return;
+      }
+    }
+
+    const savedPreset = await prisma.$transaction(async (tx) => {
+      if (isDefault) {
+        await tx.transferFilterPreset.updateMany({
+          where: { userId: req.user!.id, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
+
+      return tx.transferFilterPreset.upsert({
+        where: {
+          userId_name: {
+            userId: req.user!.id,
+            name: normalizedName,
+          },
+        },
+        update: {
+          state,
+          isDefault: Boolean(isDefault),
+        },
+        create: {
+          userId: req.user!.id,
+          name: normalizedName,
+          state,
+          isDefault: Boolean(isDefault),
+        },
+      });
+    });
+
+    res.status(201).json(savedPreset);
+  } catch (error) {
+    console.error('SaveTransferFilterPreset error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function deleteTransferFilterPreset(req: AuthRequest, res: Response): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: 'Требуется авторизация' });
+    return;
+  }
+
+  const id = parsePositiveInt(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: 'Некорректный ID набора' });
+    return;
+  }
+
+  try {
+    const result = await prisma.transferFilterPreset.deleteMany({
+      where: {
+        id,
+        userId: req.user.id,
+      },
+    });
+
+    if (!result.count) {
+      res.status(404).json({ error: 'Набор фильтров не найден' });
+      return;
+    }
+
+    res.json({ message: 'Набор фильтров удален' });
+  } catch (error) {
+    console.error('DeleteTransferFilterPreset error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function renameTransferFilterPreset(req: AuthRequest, res: Response): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: 'Требуется авторизация' });
+    return;
+  }
+
+  const id = parsePositiveInt(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: 'Некорректный ID набора' });
+    return;
+  }
+
+  const nextName = String(req.body?.name || '').trim();
+  if (!nextName) {
+    res.status(400).json({ error: 'Новое название обязательно' });
+    return;
+  }
+
+  if (nextName.length > 50) {
+    res.status(400).json({ error: 'Название набора должно быть не длиннее 50 символов' });
+    return;
+  }
+
+  try {
+    const existing = await prisma.transferFilterPreset.findFirst({
+      where: { id, userId: req.user.id },
+      select: { id: true, name: true },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: 'Набор фильтров не найден' });
+      return;
+    }
+
+    const duplicated = await prisma.transferFilterPreset.findFirst({
+      where: {
+        userId: req.user.id,
+        name: nextName,
+        id: { not: id },
+      },
+      select: { id: true },
+    });
+
+    if (duplicated) {
+      res.status(409).json({ error: 'Набор с таким названием уже существует' });
+      return;
+    }
+
+    const renamed = await prisma.transferFilterPreset.update({
+      where: { id },
+      data: { name: nextName },
+    });
+
+    res.json(renamed);
+  } catch (error) {
+    console.error('RenameTransferFilterPreset error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function setTransferFilterPresetDefault(req: AuthRequest, res: Response): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: 'Требуется авторизация' });
+    return;
+  }
+
+  const id = parsePositiveInt(req.params.id);
+  if (!id) {
+    res.status(400).json({ error: 'Некорректный ID набора' });
+    return;
+  }
+
+  try {
+    const updatedPreset = await prisma.$transaction(async (tx) => {
+      const target = await tx.transferFilterPreset.findFirst({
+        where: { id, userId: req.user!.id },
+        select: { id: true },
+      });
+
+      if (!target) {
+        return null;
+      }
+
+      await tx.transferFilterPreset.updateMany({
+        where: { userId: req.user!.id, isDefault: true },
+        data: { isDefault: false },
+      });
+
+      return tx.transferFilterPreset.update({
+        where: { id },
+        data: { isDefault: true },
+      });
+    });
+
+    if (!updatedPreset) {
+      res.status(404).json({ error: 'Набор фильтров не найден' });
+      return;
+    }
+
+    res.json(updatedPreset);
+  } catch (error) {
+    console.error('SetTransferFilterPresetDefault error:', error);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+}
+
+export async function clearTransferFilterPresetDefault(req: AuthRequest, res: Response): Promise<void> {
+  if (!req.user) {
+    res.status(401).json({ error: 'Требуется авторизация' });
+    return;
+  }
+
+  try {
+    await prisma.transferFilterPreset.updateMany({
+      where: { userId: req.user.id, isDefault: true },
+      data: { isDefault: false },
+    });
+
+    res.json({ message: 'Набор по умолчанию снят' });
+  } catch (error) {
+    console.error('ClearTransferFilterPresetDefault error:', error);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 }

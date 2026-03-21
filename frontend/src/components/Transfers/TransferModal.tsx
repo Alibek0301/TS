@@ -62,6 +62,20 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrence, setRecurrence] = useState<{
+    pattern: 'DAILY' | 'WEEKLY';
+    interval: string;
+    count: string;
+    untilDate: string;
+    weekdays: number[];
+  }>({
+    pattern: 'WEEKLY',
+    interval: '1',
+    count: '4',
+    untilDate: '',
+    weekdays: [new Date(getDefaultDate()).getDay()],
+  });
 
   // Auto-set end time when start changes (default +2 hours)
   const handleStartTimeChange = (val: string) => {
@@ -111,7 +125,37 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
       return 'Телефон клиента должен быть не длиннее 30 символов';
     }
 
+    if (!isEdit && isRecurring) {
+      const interval = Number(recurrence.interval || '1');
+      if (!Number.isInteger(interval) || interval < 1 || interval > 30) {
+        return 'Интервал повторения должен быть от 1 до 30';
+      }
+
+      const count = recurrence.count ? Number(recurrence.count) : 0;
+      if (recurrence.count && (!Number.isInteger(count) || count < 1 || count > 100)) {
+        return 'Количество повторений должно быть от 1 до 100';
+      }
+
+      if (!count && !recurrence.untilDate) {
+        return 'Для периодики укажите количество или дату окончания';
+      }
+
+      if (recurrence.pattern === 'WEEKLY' && recurrence.weekdays.length === 0) {
+        return 'Выберите минимум один день недели';
+      }
+    }
+
     return null;
+  };
+
+  const toggleWeekday = (weekday: number) => {
+    setRecurrence((prev) => {
+      const exists = prev.weekdays.includes(weekday);
+      if (exists) {
+        return { ...prev, weekdays: prev.weekdays.filter((d) => d !== weekday) };
+      }
+      return { ...prev, weekdays: [...prev.weekdays, weekday].sort((a, b) => a - b) };
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -143,13 +187,38 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
 
       if (isEdit) {
         await transfersApi.update(transfer!.id, payload);
+      } else if (isRecurring) {
+        const recurringPayload = {
+          ...payload,
+          recurrence: {
+            pattern: recurrence.pattern,
+            interval: Number(recurrence.interval || '1'),
+            count: recurrence.count ? Number(recurrence.count) : undefined,
+            untilDate: recurrence.untilDate || undefined,
+            weekdays: recurrence.pattern === 'WEEKLY' ? recurrence.weekdays : undefined,
+          },
+        };
+
+        const recurringRes = await transfersApi.createRecurring(recurringPayload);
+        const { createdCount, skippedCount, totalRequested } = recurringRes.data;
+        if (!createdCount) {
+          throw new Error('Не удалось создать регулярные трансферы: все даты в конфликте');
+        }
+
+        showToast(
+          `Создано ${createdCount} из ${totalRequested}${skippedCount ? `, пропущено ${skippedCount}` : ''}`,
+          'success'
+        );
       } else {
         await transfersApi.create(payload);
+        showToast('Трансфер создан', 'success');
       }
-      showToast(isEdit ? 'Трансфер обновлён' : 'Трансфер создан', 'success');
+      if (isEdit) {
+        showToast('Трансфер обновлён', 'success');
+      }
       onSave();
     } catch (err: any) {
-      const msg = err.response?.data?.error || 'Ошибка сохранения';
+      const msg = err.response?.data?.error || err.message || 'Ошибка сохранения';
       setError(msg);
       showToast(msg, 'error');
     } finally {
@@ -191,6 +260,94 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
               </div>
               <div className="form-group" style={{ gridColumn: 'span 1' }} />
             </div>
+
+            {!isEdit && (
+              <div className="card" style={{ marginBottom: 16, padding: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                  />
+                  Регулярный/периодический трансфер
+                </label>
+
+                {isRecurring && (
+                  <>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Шаблон</label>
+                        <select
+                          value={recurrence.pattern}
+                          onChange={(e) => setRecurrence({ ...recurrence, pattern: e.target.value as 'DAILY' | 'WEEKLY' })}
+                        >
+                          <option value="DAILY">Ежедневно</option>
+                          <option value="WEEKLY">Еженедельно</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Интервал</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={recurrence.interval}
+                          onChange={(e) => setRecurrence({ ...recurrence, interval: e.target.value.replace(/[^0-9]/g, '') || '1' })}
+                        />
+                      </div>
+                    </div>
+
+                    {recurrence.pattern === 'WEEKLY' && (
+                      <div className="form-group">
+                        <label>Дни недели</label>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {[
+                            { key: 1, label: 'Пн' },
+                            { key: 2, label: 'Вт' },
+                            { key: 3, label: 'Ср' },
+                            { key: 4, label: 'Чт' },
+                            { key: 5, label: 'Пт' },
+                            { key: 6, label: 'Сб' },
+                            { key: 0, label: 'Вс' },
+                          ].map((day) => (
+                            <button
+                              key={day.key}
+                              type="button"
+                              className={`btn btn-sm ${recurrence.weekdays.includes(day.key) ? 'btn-primary' : 'btn-secondary'}`}
+                              onClick={() => toggleWeekday(day.key)}
+                            >
+                              {day.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Количество повторений</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={recurrence.count}
+                          onChange={(e) => setRecurrence({ ...recurrence, count: e.target.value.replace(/[^0-9]/g, '') })}
+                          placeholder="Например 8"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Или до даты</label>
+                        <input
+                          type="date"
+                          value={recurrence.untilDate}
+                          onChange={(e) => setRecurrence({ ...recurrence, untilDate: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="form-row">
               <div className="form-group">
@@ -317,7 +474,7 @@ export default function TransferModal({ transfer, drivers, cars, onClose, onSave
           <div className="modal-footer">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Отмена</button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Сохранение...' : isEdit ? 'Сохранить изменения' : 'Создать трансфер'}
+              {loading ? 'Сохранение...' : isEdit ? 'Сохранить изменения' : isRecurring ? 'Создать серию' : 'Создать трансфер'}
             </button>
           </div>
         </form>

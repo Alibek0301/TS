@@ -42,6 +42,12 @@ enum UserRole {
   DRIVER
 }
 
+enum WaybillStatus {
+  DRAFT
+  ISSUED
+  CLOSED
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
@@ -54,8 +60,25 @@ model User {
   updatedAt DateTime @updatedAt
 
   transferHistory TransferHistory[]
+  transferFilterPresets TransferFilterPreset[]
+  createdWaybills Waybill[] @relation("WaybillCreatedBy")
 
   @@map("users")
+}
+
+model TransferFilterPreset {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  state     Json
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("transfer_filter_presets")
 }
 
 model Driver {
@@ -136,8 +159,57 @@ model Transfer {
   driver  Driver @relation(fields: [driverId], references: [id])
   car     Car    @relation(fields: [carId], references: [id])
   history TransferHistory[]
+  waybill Waybill?
 
   @@map("transfers")
+}
+
+model Waybill {
+  id                    Int           @id @default(autoincrement())
+  number                String        @unique
+  seriesBranchCode      String        @default("AST")
+  seriesTypeCode        String        @default("TR")
+  seriesMonth           String        @default("197001")
+  transferId            Int           @unique
+  createdById           Int?
+  status                WaybillStatus @default(DRAFT)
+  issueDate             DateTime
+  validFrom             DateTime
+  validTo               DateTime
+  organizationName      String
+  organizationBin       String?
+  organizationAddress   String?
+  dispatchAddress       String?
+  driverName            String
+  driverLicenseNumber   String?
+  vehicleBrand          String
+  vehicleModel          String
+  vehiclePlateNumber    String
+  route                 String
+  odometerStart         Int?
+  odometerEnd           Int?
+  fuelType              String?
+  fuelIssuedLiters      Float?
+  fuelRemainingLiters   Float?
+  mechanicName          String?
+  medicName             String?
+  preTripCheckPassed    Boolean?
+  postTripCheckPassed   Boolean?
+  preTripMedicalPassed  Boolean?
+  postTripMedicalPassed Boolean?
+  notes                 String?
+  legalChecklist        Json?
+  printedAt             DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("WaybillCreatedBy", fields: [createdById], references: [id])
+
+  @@index([issueDate])
+  @@index([status])
+  @@index([seriesBranchCode, seriesTypeCode, seriesMonth])
+  @@map("waybills")
 }
 
 model TransferHistory {

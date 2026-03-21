@@ -9,6 +9,7 @@ import transferRoutes from './routes/transfer.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import userRoutes from './routes/user.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import waybillRoutes from './routes/waybill.routes';
 import { getJwtSecret } from './utils/env';
 
 dotenv.config();
@@ -48,6 +49,7 @@ app.use('/api/transfers', apiLimiter, transferRoutes);
 app.use('/api/dashboard', apiLimiter, dashboardRoutes);
 app.use('/api/users', apiLimiter, userRoutes);
 app.use('/api/analytics', apiLimiter, analyticsRoutes);
+app.use('/api/waybills', apiLimiter, waybillRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

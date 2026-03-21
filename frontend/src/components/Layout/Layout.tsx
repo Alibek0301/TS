@@ -15,6 +15,7 @@ import {
   BarChart3,
   Menu,
   X,
+  FileText,
 } from 'lucide-react';
 
 export default function Layout() {
@@ -111,6 +112,10 @@ export default function Layout() {
               <NavLink to="/analytics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 <BarChart3 size={18} />
                 Аналитика
+              </NavLink>
+              <NavLink to="/waybills" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <FileText size={18} />
+                Путевые листы
               </NavLink>
             </div>
           )}
